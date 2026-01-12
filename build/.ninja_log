@@ -1,8 +1,0 @@
-# ninja log v5
-2	18	1768252952528817476	CMakeFiles/game.dir/map.cpp.o	5bab2c02e3450bf5
-2	24	1768252952532417476	CMakeFiles/game.dir/gun.cpp.o	fe6e464b30741ffc
-2	554	1768252953065217459	CMakeFiles/game.dir/sprite.cpp.o	4b53ff1efb4df62c
-1	621	1768252953130017457	CMakeFiles/game.dir/player.cpp.o	e75466359d1765e7
-1	624	1768252953133617457	CMakeFiles/game.dir/main.cpp.o	eb40d7076b504408
-3	632	1768252953140817456	CMakeFiles/game.dir/renderer.cpp.o	25a3b2b196ef1a8d
-632	967	1768252953472017445	game	445e5565a7e28166

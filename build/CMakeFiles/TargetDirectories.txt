@@ -1,3 +1,0 @@
-/home/yanchik/my_stuff/projects/cppprojects/seriousdoom/build/CMakeFiles/game.dir
-/home/yanchik/my_stuff/projects/cppprojects/seriousdoom/build/CMakeFiles/edit_cache.dir
-/home/yanchik/my_stuff/projects/cppprojects/seriousdoom/build/CMakeFiles/rebuild_cache.dir
