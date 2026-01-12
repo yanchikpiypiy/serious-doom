@@ -1,0 +1,81 @@
+#include "gun.h"
+#include "map.h"
+#include "player.h"
+#include "renderer.h"
+#include <SDL2/SDL.h>
+#include <cstring>
+
+const int WIDTH = 320;
+const int HEIGHT = 200;
+
+uint32_t pixels[WIDTH * HEIGHT];
+
+int main() {
+  SDL_Init(SDL_INIT_VIDEO);
+
+  SDL_Window *win =
+      SDL_CreateWindow("Doom with Gun", SDL_WINDOWPOS_CENTERED,
+                       SDL_WINDOWPOS_CENTERED, WIDTH * 4, HEIGHT * 4, 0);
+
+  SDL_Renderer *ren = SDL_CreateRenderer(win, -1, 0);
+  SDL_Texture *tex =
+      SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888,
+                        SDL_TEXTUREACCESS_STREAMING, WIDTH, HEIGHT);
+
+  if (!loadGunSprites()) {
+    printf("ERROR: Could not load gun sprites!\n");
+    return 1;
+  }
+
+  // Load wall texture - put it in sprites/ folder
+  if (!loadWallTexture("sprites/wall.png")) {
+    printf("WARNING: Could not load wall texture! Using solid color.\n");
+  }
+
+  bool running = true;
+  Uint32 lastTime = SDL_GetTicks();
+
+  while (running) {
+    Uint32 currentTime = SDL_GetTicks();
+    float deltaTime = (currentTime - lastTime) / 1000.0f;
+    lastTime = currentTime;
+    if (deltaTime > 0.05f)
+      deltaTime = 0.05f;
+
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {
+      if (e.type == SDL_QUIT)
+        running = false;
+
+      // Handle key press
+      if (e.type == SDL_KEYDOWN) {
+        handlePlayerInput(e.key.keysym.sym, true);
+      }
+
+      // Handle key release
+      if (e.type == SDL_KEYUP) {
+        handlePlayerInput(e.key.keysym.sym, false);
+      }
+    }
+
+    updatePlayer(deltaTime); // Now passes deltaTime!
+    updateGun(deltaTime);
+
+    memset(pixels, 0, sizeof(pixels));
+
+    render3DView(pixels, WIDTH, HEIGHT);
+    drawGun(pixels, WIDTH, HEIGHT);
+    renderMinimap(pixels, WIDTH, HEIGHT);
+
+    SDL_UpdateTexture(tex, nullptr, pixels, WIDTH * sizeof(uint32_t));
+    SDL_RenderCopy(ren, tex, nullptr, nullptr);
+    SDL_RenderPresent(ren);
+
+    SDL_Delay(1);
+  }
+
+  cleanupGunSprites();
+  cleanupWallTexture();
+  SDL_Quit();
+  return 0;
+}

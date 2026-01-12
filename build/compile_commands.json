@@ -1,0 +1,38 @@
+[
+{
+  "directory": "/home/yanchik/my_stuff/projects/cppprojects/seriousdoom/build",
+  "command": "/usr/bin/c++ -I/usr/include/SDL2 -I/home/yanchik/my_stuff/projects/cppprojects/seriousdoom -std=gnu++17 -o CMakeFiles/game.dir/main.cpp.o -c /home/yanchik/my_stuff/projects/cppprojects/seriousdoom/main.cpp",
+  "file": "/home/yanchik/my_stuff/projects/cppprojects/seriousdoom/main.cpp",
+  "output": "CMakeFiles/game.dir/main.cpp.o"
+},
+{
+  "directory": "/home/yanchik/my_stuff/projects/cppprojects/seriousdoom/build",
+  "command": "/usr/bin/c++ -I/usr/include/SDL2 -I/home/yanchik/my_stuff/projects/cppprojects/seriousdoom -std=gnu++17 -o CMakeFiles/game.dir/player.cpp.o -c /home/yanchik/my_stuff/projects/cppprojects/seriousdoom/player.cpp",
+  "file": "/home/yanchik/my_stuff/projects/cppprojects/seriousdoom/player.cpp",
+  "output": "CMakeFiles/game.dir/player.cpp.o"
+},
+{
+  "directory": "/home/yanchik/my_stuff/projects/cppprojects/seriousdoom/build",
+  "command": "/usr/bin/c++ -I/usr/include/SDL2 -I/home/yanchik/my_stuff/projects/cppprojects/seriousdoom -std=gnu++17 -o CMakeFiles/game.dir/map.cpp.o -c /home/yanchik/my_stuff/projects/cppprojects/seriousdoom/map.cpp",
+  "file": "/home/yanchik/my_stuff/projects/cppprojects/seriousdoom/map.cpp",
+  "output": "CMakeFiles/game.dir/map.cpp.o"
+},
+{
+  "directory": "/home/yanchik/my_stuff/projects/cppprojects/seriousdoom/build",
+  "command": "/usr/bin/c++ -I/usr/include/SDL2 -I/home/yanchik/my_stuff/projects/cppprojects/seriousdoom -std=gnu++17 -o CMakeFiles/game.dir/sprite.cpp.o -c /home/yanchik/my_stuff/projects/cppprojects/seriousdoom/sprite.cpp",
+  "file": "/home/yanchik/my_stuff/projects/cppprojects/seriousdoom/sprite.cpp",
+  "output": "CMakeFiles/game.dir/sprite.cpp.o"
+},
+{
+  "directory": "/home/yanchik/my_stuff/projects/cppprojects/seriousdoom/build",
+  "command": "/usr/bin/c++ -I/usr/include/SDL2 -I/home/yanchik/my_stuff/projects/cppprojects/seriousdoom -std=gnu++17 -o CMakeFiles/game.dir/gun.cpp.o -c /home/yanchik/my_stuff/projects/cppprojects/seriousdoom/gun.cpp",
+  "file": "/home/yanchik/my_stuff/projects/cppprojects/seriousdoom/gun.cpp",
+  "output": "CMakeFiles/game.dir/gun.cpp.o"
+},
+{
+  "directory": "/home/yanchik/my_stuff/projects/cppprojects/seriousdoom/build",
+  "command": "/usr/bin/c++ -I/usr/include/SDL2 -I/home/yanchik/my_stuff/projects/cppprojects/seriousdoom -std=gnu++17 -o CMakeFiles/game.dir/renderer.cpp.o -c /home/yanchik/my_stuff/projects/cppprojects/seriousdoom/renderer.cpp",
+  "file": "/home/yanchik/my_stuff/projects/cppprojects/seriousdoom/renderer.cpp",
+  "output": "CMakeFiles/game.dir/renderer.cpp.o"
+}
+]

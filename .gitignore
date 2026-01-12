@@ -1,0 +1,58 @@
+# ===== Build directories =====
+build/
+cmake-build-*/
+out/
+
+# ===== CMake generated files =====
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+*.ninja
+.ninja_deps
+.ninja_log
+
+# ===== Executables =====
+game
+game.exe
+*.out
+*.app
+
+# ===== Object files =====
+*.o
+*.obj
+*.lo
+*.la
+
+# ===== Libraries =====
+*.a
+*.so
+*.dll
+*.dylib
+
+# ===== Debug / profiler =====
+*.log
+*.trace
+*.prof
+vgcore.*
+gmon.out
+
+# ===== Editor / IDE =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ===== OS junk =====
+Thumbs.db
+
+# ===== Assets generated at runtime =====
+*.cache
+*.tmp
+
+# ===== SDL =====
+*.bmp
+
