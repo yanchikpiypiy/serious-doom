@@ -17,6 +17,7 @@ add_executable(game
     sprite.cpp
     gun.cpp
     renderer.cpp
+    enemy.cpp
 )
 
 # Include directories

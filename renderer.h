@@ -8,6 +8,7 @@ struct RayHit {
   bool vertical; // hit vertical wall or horizontal wall
 };
 
+extern const float FOV;
 void render3DView(uint32_t *pixels, int WIDTH, int HEIGHT);
 void renderMinimap(uint32_t *pixels, int WIDTH, int HEIGHT);
 

@@ -5,7 +5,7 @@
 
 // Player state
 float playerX = 1.5f;
-float playerY = 1.5f;
+float playerY = 6.5f;
 float playerAngle = 0.0f;
 
 // Input state
@@ -24,8 +24,14 @@ void handlePlayerInput(SDL_Keycode key, bool pressed) {
   if (key == SDLK_RIGHT)
     turnRight = pressed;
 
+  // Reload is instant action (only on press, not hold)
   if (key == SDLK_r && pressed) {
     startReload();
+  }
+
+  // Shoot on SPACE or Left CTRL
+  if ((key == SDLK_SPACE || key == SDLK_LCTRL) && pressed) {
+    startShoot();
   }
 }
 

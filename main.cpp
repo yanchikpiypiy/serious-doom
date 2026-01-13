@@ -4,11 +4,16 @@
 #include "renderer.h"
 #include <SDL2/SDL.h>
 #include <cstring>
+#include <enemy.h>
 
 const int WIDTH = 320;
 const int HEIGHT = 200;
 
 uint32_t pixels[WIDTH * HEIGHT];
+
+float fpsTimer = 0.0f;
+int fpsFrames = 0;
+int currentFPS = 0;
 
 int main() {
   SDL_Init(SDL_INIT_VIDEO);
@@ -32,6 +37,10 @@ int main() {
     printf("WARNING: Could not load wall texture! Using solid color.\n");
   }
 
+  if (!loadEnemySprites()) {
+    printf("Error: Could not load enemies");
+  }
+  initEnemies();
   bool running = true;
   Uint32 lastTime = SDL_GetTicks();
 
@@ -41,6 +50,17 @@ int main() {
     lastTime = currentTime;
     if (deltaTime > 0.05f)
       deltaTime = 0.05f;
+
+    fpsTimer += deltaTime;
+    fpsFrames++;
+
+    if (fpsTimer >= 1.0f) {
+      currentFPS = fpsFrames;
+      printf("FPS: %d\n", currentFPS);
+
+      fpsFrames = 0;
+      fpsTimer = 0.0f;
+    }
 
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
@@ -64,9 +84,9 @@ int main() {
     memset(pixels, 0, sizeof(pixels));
 
     render3DView(pixels, WIDTH, HEIGHT);
+    renderEnemies(pixels, WIDTH, HEIGHT);
     drawGun(pixels, WIDTH, HEIGHT);
     renderMinimap(pixels, WIDTH, HEIGHT);
-
     SDL_UpdateTexture(tex, nullptr, pixels, WIDTH * sizeof(uint32_t));
     SDL_RenderCopy(ren, tex, nullptr, nullptr);
     SDL_RenderPresent(ren);
