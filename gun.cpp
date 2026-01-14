@@ -127,7 +127,7 @@ void updateGun(float deltaTime) {
 }
 
 void drawGun(uint32_t *pixels, int WIDTH, int HEIGHT) {
-  float scale = 0.7f;
+  float scale = 1.2f;
 
   // Choose which sprite to draw
   Sprite *currentSprite = &gunIdle;

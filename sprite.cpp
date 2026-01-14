@@ -31,21 +31,37 @@ bool loadSprite(Sprite *sprite, const char *filename) {
   return true;
 }
 
+// Improved sprite scaling - replaces your drawSpriteScaled function
 void drawSpriteScaled(Sprite *sprite, int x, int y, float scale,
                       uint32_t *pixels, int WIDTH, int HEIGHT) {
-  int scaledWidth = (int)(sprite->width * scale);
-  int scaledHeight = (int)(sprite->height * scale);
+  if (!sprite || !sprite->pixels)
+    return;
 
+  int scaledWidth = (int)(sprite->width * scale + 0.5f);
+  int scaledHeight = (int)(sprite->height * scale + 0.5f);
+
+  // CHOICE: Uncomment ONE of these modes
+
+  // MODE 1: Sharp pixel art (best for 320x200 Doom-style)
+  // Uses nearest-neighbor but with better rounding
   for (int sy = 0; sy < scaledHeight; sy++) {
     for (int sx = 0; sx < scaledWidth; sx++) {
-      int origX = (int)(sx / scale);
-      int origY = (int)(sy / scale);
+      // Better sampling: add 0.5 for proper rounding to nearest pixel
+      // This reduces glitches compared to simple truncation
+      int origX = (int)((sx + 0.5f) / scale);
+      int origY = (int)((sy + 0.5f) / scale);
 
-      if (origX >= sprite->width || origY >= sprite->height)
+      // Clamp to valid range
+      if (origX >= sprite->width)
+        origX = sprite->width - 1;
+      if (origY >= sprite->height)
+        origY = sprite->height - 1;
+      if (origX < 0 || origY < 0)
         continue;
 
       uint32_t pixel = sprite->pixels[origY * sprite->width + origX];
       uint8_t alpha = (pixel >> 24) & 0xFF;
+
       if (alpha < 128)
         continue;
 

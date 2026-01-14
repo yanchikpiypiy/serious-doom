@@ -1,22 +1,30 @@
 #pragma once
 #include "sprite.h"
 
+#define ENEMY_MAX_FRAMES 4
+#define ENEMY_DOOM_ANGLES 5 // Doom stores only 5 angles
+
 struct Enemy {
-  float x, y;           // Position in world
-  bool alive;           // Alive/dead
-  int angleIndex;       // Which direction sprite to show
-  Sprite sprites[8][1]; // 8 directions, 1 frame for now
+  float x, y;
+  float vx, vy;
+  bool alive;
+  float prevX, prevY;
+  int frameIndex;
+  int frameCount;
+
+  float animTimer;
+  float animSpeed;
+
+  Sprite sprites[ENEMY_MAX_FRAMES][ENEMY_DOOM_ANGLES];
 };
 
-// Load/cleanup enemy sprites
+// API
 bool loadEnemySprites();
 void cleanupEnemySprites();
 
-// Initialize / update / render
 void initEnemies();
 void updateEnemies(float deltaTime);
 void renderEnemies(uint32_t *pixels, int screenWidth, int screenHeight);
 
-// Access enemies
 int getEnemyCount();
 Enemy &getEnemy(int index);

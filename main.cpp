@@ -6,8 +6,8 @@
 #include <cstring>
 #include <enemy.h>
 
-const int WIDTH = 320;
-const int HEIGHT = 200;
+const int WIDTH = 620;
+const int HEIGHT = 400;
 
 uint32_t pixels[WIDTH * HEIGHT];
 
@@ -20,7 +20,7 @@ int main() {
 
   SDL_Window *win =
       SDL_CreateWindow("Doom with Gun", SDL_WINDOWPOS_CENTERED,
-                       SDL_WINDOWPOS_CENTERED, WIDTH * 4, HEIGHT * 4, 0);
+                       SDL_WINDOWPOS_CENTERED, WIDTH * 2, HEIGHT * 2, 0);
 
   SDL_Renderer *ren = SDL_CreateRenderer(win, -1, 0);
   SDL_Texture *tex =
@@ -80,7 +80,7 @@ int main() {
 
     updatePlayer(deltaTime); // Now passes deltaTime!
     updateGun(deltaTime);
-
+    updateEnemies(deltaTime);
     memset(pixels, 0, sizeof(pixels));
 
     render3DView(pixels, WIDTH, HEIGHT);
