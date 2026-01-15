@@ -9,6 +9,8 @@ struct RayHit {
 };
 
 extern const float FOV;
+
+float *getZBuffer(); // Add this declaration
 void render3DView(uint32_t *pixels, int WIDTH, int HEIGHT);
 void renderMinimap(uint32_t *pixels, int WIDTH, int HEIGHT);
 

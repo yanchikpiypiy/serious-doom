@@ -8,5 +8,9 @@ struct Sprite {
 };
 
 bool loadSprite(Sprite *sprite, const char *filename);
-void drawSpriteScaled(Sprite *sprite, int x, int y, float scale,
+void drawSpriteScaled(Sprite *sprite, int x, int y, float scale, bool mirror,
                       uint32_t *pixels, int WIDTH, int HEIGHT);
+
+void drawSpriteScaledWithDepth(Sprite *sprite, int x, int y, float scale,
+                               bool mirror, uint32_t *pixels, int WIDTH,
+                               int HEIGHT, float *zBuffer, float depth);

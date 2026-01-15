@@ -147,7 +147,8 @@ void drawGun(uint32_t *pixels, int WIDTH, int HEIGHT) {
   int gunX = WIDTH / 2 - scaledWidth / 2;
   int gunY = HEIGHT - scaledHeight - 5;
 
-  drawSpriteScaled(currentSprite, gunX, gunY, scale, pixels, WIDTH, HEIGHT);
+  drawSpriteScaled(currentSprite, gunX, gunY, scale, false, pixels, WIDTH,
+                   HEIGHT);
 }
 
 void startReload() {

@@ -84,7 +84,7 @@ int main() {
     memset(pixels, 0, sizeof(pixels));
 
     render3DView(pixels, WIDTH, HEIGHT);
-    renderEnemies(pixels, WIDTH, HEIGHT);
+    renderEnemies(pixels, WIDTH, HEIGHT, getZBuffer());
     drawGun(pixels, WIDTH, HEIGHT);
     renderMinimap(pixels, WIDTH, HEIGHT);
     SDL_UpdateTexture(tex, nullptr, pixels, WIDTH * sizeof(uint32_t));

@@ -1,88 +1,88 @@
 #include "enemy.h"
+#include "map.h"
 #include "player.h"
 #include "sprite.h"
-#include <cctype>
 #include <cmath>
 #include <cstdio>
 
-// =========================
-// Simple enemy system
-
-// Global enemy array and count
 #define MAX_ENEMIES 10
 static Enemy enemies[MAX_ENEMIES];
-static int enemyCount = 1;
-
-// Store all 8 viewing angles here (frames x angles)
+static int enemyCount = 6;
 static Sprite allAngleSprites[ENEMY_MAX_FRAMES][8];
 
-// Map view angle (0-7) to file format
-// Angles 0 and 4 (A1, A5): no mirror, just "A1" or "A5"
-// Angles 1,2,3 (A2A8, A3A7, A4A6): has mirror pair in filename
-// Angles 5,6,7: use the mirrored versions from same files
+// Enemy AI constants
+static const float ENEMY_MOVE_SPEED = 1.8f;
+static const float ENEMY_CHASE_RANGE = 12.0f;
+static const float ENEMY_MIN_DISTANCE = 0.8f;
+static const float ENEMY_FACING_THRESHOLD =
+    0.005f; // Lower threshold for smoother updates
+static const float ENEMY_ANGLE_CHANGE_THRESHOLD =
+    0.3f; // Lower threshold (~17°) for smoother turning
+static const float ENEMY_MEMORY_TIME = 3.0f;
+static const float ENEMY_STUCK_TIME = 0.5f;
+
+// Enemy AI states
+enum EnemyState {
+  IDLE,
+  CHASING,
+  SEARCHING,
+  UNSTUCK // New: trying to get unstuck
+};
+
+struct EnemyAI {
+  EnemyState state;
+  float lastSeenX;
+  float lastSeenY;
+  float memoryTimer;
+  float stuckTimer;
+  float lastMovedX;
+  float lastMovedY;
+  float unstuckAngle; // Direction to try when stuck
+};
+
+static EnemyAI enemyAI[MAX_ENEMIES];
+
 struct AngleFileInfo {
   int angle1;
-  int angle2; // -1 if no mirror pair
+  int angle2;
 };
 
-static const AngleFileInfo viewToFile[8] = {
-    {1, -1}, // View 0 -> A1 (no mirror)
-    {2, 8},  // View 1 -> A2A8
-    {3, 7},  // View 2 -> A3A7
-    {4, 6},  // View 3 -> A4A6
-    {5, -1}, // View 4 -> A5 (no mirror)
-    {4, 6},  // View 5 -> A4A6 (mirrored)
-    {3, 7},  // View 6 -> A3A7 (mirrored)
-    {2, 8}   // View 7 -> A2A8 (mirrored)
-};
+static const AngleFileInfo viewToFile[8] = {{1, -1}, {2, 8}, {3, 7}, {4, 6},
+                                            {5, -1}, {4, 6}, {3, 7}, {2, 8}};
 
-// Animation frame letters
+static const bool shouldMirror[8] = {false, false, false, false,
+                                     false, true,  true,  true};
+
 static const char frameLetters[ENEMY_MAX_FRAMES] = {'A', 'B', 'C', 'D'};
 
 static void buildEnemySpritePath(char *out, const char *base, char frame,
                                  const AngleFileInfo &info) {
-  if (info.angle2 == -1) {
-    // No mirror: sprites/slhv/SLHVA1.png
+  if (info.angle2 == -1)
     sprintf(out, "sprites/slhv/%s%c%d.png", base, frame, info.angle1);
-  } else {
-    // Has mirror: sprites/slhv/SLHVA2A8.png or SLHVB2B8.png (frame letter
-    // repeated!)
+  else
     sprintf(out, "sprites/slhv/%s%c%d%c%d.png", base, frame, info.angle1, frame,
             info.angle2);
-  }
 }
 
 bool loadEnemySprites() {
-  Enemy &e = enemies[0];
-  e.frameCount = ENEMY_MAX_FRAMES;
+  enemies[0].frameCount = ENEMY_MAX_FRAMES;
 
-  // Load all 8 viewing angles from their corresponding files
-  for (int f = 0; f < e.frameCount; f++) {
-    for (int viewAngle = 0; viewAngle < 8; viewAngle++) {
+  for (int f = 0; f < ENEMY_MAX_FRAMES; f++) {
+    for (int a = 0; a < 8; a++) {
       char path[256];
-      buildEnemySpritePath(path, "SLHV", frameLetters[f],
-                           viewToFile[viewAngle]);
-
-      if (!loadSprite(&allAngleSprites[f][viewAngle], path)) {
-        printf("Failed to load enemy sprite: %s\n", path);
+      buildEnemySpritePath(path, "SLHV", frameLetters[f], viewToFile[a]);
+      if (!loadSprite(&allAngleSprites[f][a], path)) {
+        printf("Failed to load: %s\n", path);
         return false;
       }
     }
   }
 
-  // Also load into the Enemy struct's array (first 5 angles for compatibility)
-  for (int f = 0; f < e.frameCount; f++) {
-    for (int a = 0; a < ENEMY_DOOM_ANGLES; a++) {
-      e.sprites[f][a] = allAngleSprites[f][a];
-    }
-  }
-
-  printf("Enemy sprites loaded (%d frames, 8 view angles)\n", e.frameCount);
+  printf("Enemy sprites loaded (%d frames, 8 angles)\n", ENEMY_MAX_FRAMES);
   return true;
 }
 
 void cleanupEnemySprites() {
-  // Clean up all angle sprites
   for (int f = 0; f < ENEMY_MAX_FRAMES; f++) {
     for (int a = 0; a < 8; a++) {
       if (allAngleSprites[f][a].pixels) {
@@ -91,155 +91,328 @@ void cleanupEnemySprites() {
       }
     }
   }
-
-  // Clear Enemy struct references (they point to same data)
-  Enemy &e = enemies[0];
-  for (int f = 0; f < e.frameCount; f++) {
-    for (int a = 0; a < ENEMY_DOOM_ANGLES; a++) {
-      e.sprites[f][a].pixels = nullptr;
-    }
-  }
 }
 
 void initEnemies() {
-  Enemy &e = enemies[0];
+  // Better spawn positions - spread across the map
+  float spawnPositions[][2] = {
+      {12.0f, 10.0f}, // Main hall
+      {3.0f, 3.0f},   // North wing
+      {20.0f, 3.0f},  // Northeast
+      {3.0f, 16.0f},  // West courtyard
+      {20.0f, 16.0f}, // East storage
+      {12.0f, 19.0f}  // Lower corridor
+  };
 
-  e.x = 5.5f;
-  e.y = 6.5f;
-  e.vx = 1.0f;
-  e.vy = 0.0f;
-
-  e.prevX = e.x;
-  e.prevY = e.y;
-
-  e.alive = true;
-  e.frameIndex = 0;
-
-  e.animTimer = 0.0f;
-  e.animSpeed = 0.15f;
-}
-
-void updateEnemies(float deltaTime) {
   for (int i = 0; i < enemyCount; i++) {
     Enemy &e = enemies[i];
+    e.x = spawnPositions[i][0];
+    e.y = spawnPositions[i][1];
+    e.vx = 0.0f;
+    e.vy = 0.0f;
+    e.prevX = e.x;
+    e.prevY = e.y;
+    e.facingAngle = 0.0f;
+    e.frameIndex = 0;
+    e.frameCount = ENEMY_MAX_FRAMES;
+    e.animTimer = 0.0f;
+    e.animSpeed = 0.15f;
+    e.alive = true;
+
+    // Initialize AI state
+    enemyAI[i].state = IDLE;
+    enemyAI[i].lastSeenX = e.x;
+    enemyAI[i].lastSeenY = e.y;
+    enemyAI[i].memoryTimer = 0.0f;
+    enemyAI[i].stuckTimer = 0.0f;
+    enemyAI[i].lastMovedX = e.x;
+    enemyAI[i].lastMovedY = e.y;
+    enemyAI[i].unstuckAngle = 0.0f;
+  }
+
+  printf("Initialized %d enemies\n", enemyCount);
+}
+
+// Line-of-sight check
+static bool hasLineOfSight(float x1, float y1, float x2, float y2) {
+  float dx = x2 - x1;
+  float dy = y2 - y1;
+  float dist = sqrtf(dx * dx + dy * dy);
+
+  if (dist < 0.1f)
+    return true;
+
+  dx /= dist;
+  dy /= dist;
+
+  float step = 0.1f;
+  for (float t = 0; t < dist; t += step) {
+    float x = x1 + dx * t;
+    float y = y1 + dy * t;
+
+    if (getMapTile((int)y, (int)x) == 1) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+// Calculate shortest angular distance
+static float angleDifference(float a1, float a2) {
+  float diff = a2 - a1;
+  while (diff > M_PI)
+    diff -= 2 * M_PI;
+  while (diff < -M_PI)
+    diff += 2 * M_PI;
+  return fabs(diff);
+}
+
+void updateEnemies(float dt) {
+  for (int i = 0; i < enemyCount; i++) {
+    Enemy &e = enemies[i];
+    EnemyAI &ai = enemyAI[i];
     if (!e.alive)
       continue;
 
-    // Store previous position
     float oldX = e.x;
     float oldY = e.y;
 
-    // Simple movement (walk left/right)
-    e.x += e.vx * deltaTime;
+    float dx = playerX - e.x;
+    float dy = playerY - e.y;
+    float distToPlayer = sqrtf(dx * dx + dy * dy);
 
-    if (e.x < 4.0f || e.x > 8.0f)
-      e.vx = -e.vx;
+    bool canSeePlayer = hasLineOfSight(e.x, e.y, playerX, playerY);
 
-    // Update prevX/prevY only if we actually moved
-    float dx = e.x - oldX;
-    float dy = e.y - oldY;
-    if (fabs(dx) > 0.001f || fabs(dy) > 0.001f) {
+    // Check if enemy is stuck
+    float moveDist = sqrtf((e.x - ai.lastMovedX) * (e.x - ai.lastMovedX) +
+                           (e.y - ai.lastMovedY) * (e.y - ai.lastMovedY));
+
+    if (moveDist < 0.05f && (ai.state == CHASING || ai.state == SEARCHING)) {
+      ai.stuckTimer += dt;
+      if (ai.stuckTimer > ENEMY_STUCK_TIME) {
+        // Enemy is stuck! Switch to unstuck mode
+        ai.state = UNSTUCK;
+        // Try a new random direction (DOOM-style: rotate 45-90 degrees)
+        float angleToPlayer = atan2f(dy, dx);
+        ai.unstuckAngle =
+            angleToPlayer + (rand() % 2 ? 1.0f : -1.0f) *
+                                (M_PI / 4.0f + (rand() % 100) / 200.0f);
+        ai.stuckTimer = 0.0f;
+      }
+    } else {
+      ai.stuckTimer = 0.0f;
+      ai.lastMovedX = e.x;
+      ai.lastMovedY = e.y;
+    }
+
+    // AI State Machine
+    if (canSeePlayer && distToPlayer < ENEMY_CHASE_RANGE &&
+        ai.state != UNSTUCK) {
+      // Can see player - chase!
+      ai.state = CHASING;
+      ai.lastSeenX = playerX;
+      ai.lastSeenY = playerY;
+      ai.memoryTimer = ENEMY_MEMORY_TIME;
+
+    } else if (ai.state == CHASING && !canSeePlayer) {
+      // Lost sight - switch to searching
+      ai.state = SEARCHING;
+
+    } else if (ai.state == SEARCHING) {
+      // Count down memory timer
+      ai.memoryTimer -= dt;
+      if (ai.memoryTimer <= 0.0f) {
+        ai.state = IDLE;
+      }
+    } else if (ai.state == UNSTUCK) {
+      // Try unstuck movement for 1 second, then reassess
+      ai.memoryTimer += dt;
+      if (ai.memoryTimer > 1.0f) {
+        ai.memoryTimer = 0.0f;
+        ai.state = canSeePlayer ? CHASING : IDLE;
+      }
+    }
+
+    // Movement based on state
+    float targetX, targetY, distToTarget;
+    bool shouldMove = false;
+
+    if (ai.state == CHASING) {
+      targetX = playerX;
+      targetY = playerY;
+      distToTarget = distToPlayer;
+      shouldMove = distToTarget > ENEMY_MIN_DISTANCE;
+
+    } else if (ai.state == SEARCHING) {
+      dx = ai.lastSeenX - e.x;
+      dy = ai.lastSeenY - e.y;
+      distToTarget = sqrtf(dx * dx + dy * dy);
+      targetX = ai.lastSeenX;
+      targetY = ai.lastSeenY;
+      shouldMove = distToTarget > 0.5f;
+
+      if (distToTarget < 0.5f) {
+        ai.state = IDLE;
+      }
+
+    } else if (ai.state == UNSTUCK) {
+      // Move in the unstuck direction
+      float unstuckDist = 2.0f; // Try to move 2 units
+      targetX = e.x + cosf(ai.unstuckAngle) * unstuckDist;
+      targetY = e.y + sinf(ai.unstuckAngle) * unstuckDist;
+      dx = targetX - e.x;
+      dy = targetY - e.y;
+      distToTarget = sqrtf(dx * dx + dy * dy);
+      shouldMove = true;
+
+    } else {
+      // IDLE
+      e.vx = 0;
+      e.vy = 0;
+    }
+
+    // Execute movement
+    if (shouldMove && distToTarget > 0.1f) {
+      dx = targetX - e.x;
+      dy = targetY - e.y;
+      float normDist = sqrtf(dx * dx + dy * dy);
+      dx /= normDist;
+      dy /= normDist;
+
+      float newX = e.x + dx * ENEMY_MOVE_SPEED * dt;
+      float newY = e.y + dy * ENEMY_MOVE_SPEED * dt;
+
+      if (getMapTile((int)newY, (int)newX) == 0) {
+        e.x = newX;
+        e.y = newY;
+        e.vx = dx * ENEMY_MOVE_SPEED;
+        e.vy = dy * ENEMY_MOVE_SPEED;
+      } else {
+        // Try sliding along walls (DOOM-style)
+        if (getMapTile((int)oldY, (int)newX) == 0) {
+          e.x = newX;
+          e.vx = dx * ENEMY_MOVE_SPEED;
+          e.vy = 0;
+        } else if (getMapTile((int)newY, (int)oldX) == 0) {
+          e.y = newY;
+          e.vx = 0;
+          e.vy = dy * ENEMY_MOVE_SPEED;
+        } else {
+          e.vx = 0;
+          e.vy = 0;
+        }
+      }
+    }
+
+    // Update facing and animation
+    float moveDX = e.x - oldX;
+    float moveDY = e.y - oldY;
+    float moveMagnitude = sqrtf(moveDX * moveDX + moveDY * moveDY);
+
+    // Always animate when moving (no hysteresis on animation)
+    bool isMoving = moveMagnitude > ENEMY_FACING_THRESHOLD;
+
+    if (isMoving) {
+      float newFacingAngle = atan2f(moveDY, moveDX);
+
+      // Smooth angle interpolation instead of hard threshold
+      float angleDiff = newFacingAngle - e.facingAngle;
+      while (angleDiff > M_PI)
+        angleDiff -= 2 * M_PI;
+      while (angleDiff < -M_PI)
+        angleDiff += 2 * M_PI;
+
+      // Only apply hysteresis if the change is very small
+      if (fabs(angleDiff) > ENEMY_ANGLE_CHANGE_THRESHOLD) {
+        e.facingAngle = newFacingAngle;
+      } else if (fabs(angleDiff) > 0.1f) {
+        // Smooth interpolation for medium changes
+        e.facingAngle += angleDiff * 0.3f; // Blend 30% toward new angle
+      }
+
       e.prevX = oldX;
       e.prevY = oldY;
-    }
-    // Otherwise keep the last valid prevX/prevY for direction
 
-    // Animate only if moving
-    if (fabs(e.vx) > 0.01f || fabs(e.vy) > 0.01f) {
-      e.animTimer += deltaTime;
+      // Always animate when moving
+      e.animTimer += dt;
       if (e.animTimer >= e.animSpeed) {
         e.animTimer = 0.0f;
         e.frameIndex = (e.frameIndex + 1) % e.frameCount;
       }
     } else {
+      // Stop animation when not moving
+      e.animTimer = 0.0f;
       e.frameIndex = 0;
     }
   }
 }
 
-void renderEnemies(uint32_t *pixels, int screenWidth, int screenHeight) {
-  const float FOV = 3.14159f / 3.0f;
-  const int NUM_ANGLES = 8;
+// Render enemies - matches header signature
+void renderEnemies(uint32_t *pixels, int screenWidth, int screenHeight,
+                   float *buffer) {
+  int w = screenWidth;
+  int h = screenHeight;
+  float *zBuffer = buffer;
+  const float FOV = M_PI / 3.0f;
 
   for (int i = 0; i < enemyCount; i++) {
     Enemy &e = enemies[i];
     if (!e.alive)
       continue;
 
-    // Vector from player to enemy
     float dx = e.x - playerX;
     float dy = e.y - playerY;
-    float distance = sqrtf(dx * dx + dy * dy);
-    if (distance < 0.01f)
+    float dist = sqrtf(dx * dx + dy * dy);
+    if (dist < 0.1f)
       continue;
 
-    // Angle from player to enemy
     float angleToEnemy = atan2f(dy, dx);
+    float relAngle = angleToEnemy - playerAngle;
 
-    // Relative to player's viewing direction
-    float relativeAngle = angleToEnemy - playerAngle;
+    while (relAngle < -M_PI)
+      relAngle += 2 * M_PI;
+    while (relAngle > M_PI)
+      relAngle -= 2 * M_PI;
 
-    // Normalize to 0 to 2π
-    while (relativeAngle < 0)
-      relativeAngle += 2 * M_PI;
-    while (relativeAngle >= 2 * M_PI)
-      relativeAngle -= 2 * M_PI;
+    if (fabs(relAngle) > FOV * 0.5f)
+      continue;
 
-    // Check if in FOV
-    float viewAngle = relativeAngle;
-    if (viewAngle > M_PI)
-      viewAngle -= 2 * M_PI;
-    if (fabs(viewAngle) > FOV / 2)
-      continue; // outside FOV
-
-    // Calculate enemy's facing direction from actual movement (dx, dy)
-    float dx_enemy = e.x - e.prevX;
-    float dy_enemy = e.y - e.prevY;
-    float enemyFacingAngle = atan2f(dy_enemy, dx_enemy);
-
-    // Calculate what sprite to show: where is player relative to enemy's
-    // facing? Add PI to flip it so A1 (front) shows when player is in front of
-    // enemy
-    float spriteAngle = angleToEnemy - enemyFacingAngle + M_PI;
-
-    // Normalize to 0 to 2π
+    float spriteAngle = e.facingAngle - angleToEnemy + M_PI;
     while (spriteAngle < 0)
       spriteAngle += 2 * M_PI;
     while (spriteAngle >= 2 * M_PI)
       spriteAngle -= 2 * M_PI;
 
-    // Determine which sprite angle to use (0-7)
-    int angleIndex =
-        (int)((spriteAngle / (2 * M_PI)) * NUM_ANGLES + 0.5f) % NUM_ANGLES;
-    // Get sprite from the global array
+    int angleIndex = int((spriteAngle / (2 * M_PI)) * 8) & 7;
+    bool mirror = shouldMirror[angleIndex];
+
     Sprite &sprite = allAngleSprites[e.frameIndex][angleIndex];
 
-    // Project to screen with fish-eye correction
-    float correctedDist = distance * cosf(viewAngle);
-    if (correctedDist < 0.1f)
-      correctedDist = 0.1f;
+    float corrected = dist * cosf(relAngle);
+    if (corrected < 0.1f)
+      corrected = 0.1f;
 
-    // Calculate wall height at this distance (same formula as renderer)
-    int wallHeight = int((float(screenHeight) / correctedDist) * 0.8f);
+    int wallHeight = int((float(h) / corrected) * 0.8f);
+    int floorLine = (h / 2) + wallHeight;
+    int spriteH = int((float(h) / corrected) * 1.1f);
+    int spriteW =
+        int((float(sprite.width) / float(sprite.height)) * float(spriteH));
 
-    // Floor line is at: screenHeight/2 + wallHeight
-    int floorLine = (screenHeight / 2) + wallHeight;
-
-    // Enemy sprite height - scale based on distance
-    int spriteH = int((float(screenHeight) / correctedDist) * 1.1f);
-    int spriteW = int((float(sprite.width) / float(sprite.height)) * spriteH);
-
-    // Screen X position
-    int drawX = int((0.5f + viewAngle / FOV) * screenWidth - spriteW / 2);
-
-    // Align sprite BOTTOM to the floor line
+    int drawX = int((0.5f + relAngle / FOV) * w - spriteW / 2);
     int drawY = floorLine - spriteH;
 
-    drawSpriteScaled(&sprite, drawX, drawY, float(spriteW) / sprite.width,
-                     pixels, screenWidth, screenHeight);
+    // Draw with z-buffer if available, otherwise draw normally
+    if (zBuffer) {
+      drawSpriteScaledWithDepth(&sprite, drawX, drawY,
+                                float(spriteW) / sprite.width, mirror, pixels,
+                                w, h, zBuffer, corrected);
+    } else {
+      drawSpriteScaled(&sprite, drawX, drawY, float(spriteW) / sprite.width,
+                       mirror, pixels, w, h);
+    }
   }
 }
 
 int getEnemyCount() { return enemyCount; }
-
-Enemy &getEnemy(int index) { return enemies[index]; }
+Enemy &getEnemy(int i) { return enemies[i]; }

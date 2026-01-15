@@ -1,6 +1,9 @@
 #pragma once
 #include "sprite.h"
 
+#pragma once
+#include "sprite.h"
+
 #define ENEMY_MAX_FRAMES 4
 #define ENEMY_DOOM_ANGLES 5 // Doom stores only 5 angles
 
@@ -11,7 +14,7 @@ struct Enemy {
   float prevX, prevY;
   int frameIndex;
   int frameCount;
-
+  float facingAngle;
   float animTimer;
   float animSpeed;
 
@@ -24,7 +27,8 @@ void cleanupEnemySprites();
 
 void initEnemies();
 void updateEnemies(float deltaTime);
-void renderEnemies(uint32_t *pixels, int screenWidth, int screenHeight);
+void renderEnemies(uint32_t *pixels, int screenWidth, int screenHeight,
+                   float *buffer);
 
 int getEnemyCount();
 Enemy &getEnemy(int index);
