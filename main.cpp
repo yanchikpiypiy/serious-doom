@@ -1,27 +1,24 @@
+#include "enemy.h"
 #include "gun.h"
 #include "map.h"
 #include "player.h"
+#include "projectile.h" // ADD THIS
 #include "renderer.h"
 #include <SDL2/SDL.h>
 #include <cstring>
-#include <enemy.h>
 
 const int WIDTH = 620;
 const int HEIGHT = 400;
-
 uint32_t pixels[WIDTH * HEIGHT];
-
 float fpsTimer = 0.0f;
 int fpsFrames = 0;
 int currentFPS = 0;
 
 int main() {
   SDL_Init(SDL_INIT_VIDEO);
-
   SDL_Window *win =
       SDL_CreateWindow("Doom with Gun", SDL_WINDOWPOS_CENTERED,
                        SDL_WINDOWPOS_CENTERED, WIDTH * 2, HEIGHT * 2, 0);
-
   SDL_Renderer *ren = SDL_CreateRenderer(win, -1, 0);
   SDL_Texture *tex =
       SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888,
@@ -32,15 +29,23 @@ int main() {
     return 1;
   }
 
-  // Load wall texture - put it in sprites/ folder
   if (!loadWallTexture("sprites/wall.png")) {
     printf("WARNING: Could not load wall texture! Using solid color.\n");
   }
 
   if (!loadEnemySprites()) {
-    printf("Error: Could not load enemies");
+    printf("Error: Could not load enemies\n");
+    return 1;
   }
+
+  if (!loadProjectileSprites()) { // ADD THIS
+    printf("Error: Could not load projectile sprites\n");
+    return 1;
+  }
+
   initEnemies();
+  initProjectiles(); // ADD THIS
+
   bool running = true;
   Uint32 lastTime = SDL_GetTicks();
 
@@ -48,16 +53,15 @@ int main() {
     Uint32 currentTime = SDL_GetTicks();
     float deltaTime = (currentTime - lastTime) / 1000.0f;
     lastTime = currentTime;
+
     if (deltaTime > 0.05f)
       deltaTime = 0.05f;
 
     fpsTimer += deltaTime;
     fpsFrames++;
-
     if (fpsTimer >= 1.0f) {
       currentFPS = fpsFrames;
       printf("FPS: %d\n", currentFPS);
-
       fpsFrames = 0;
       fpsTimer = 0.0f;
     }
@@ -67,26 +71,35 @@ int main() {
       if (e.type == SDL_QUIT)
         running = false;
 
-      // Handle key press
       if (e.type == SDL_KEYDOWN) {
         handlePlayerInput(e.key.keysym.sym, true);
       }
 
-      // Handle key release
       if (e.type == SDL_KEYUP) {
         handlePlayerInput(e.key.keysym.sym, false);
       }
     }
 
-    updatePlayer(deltaTime); // Now passes deltaTime!
+    updatePlayer(deltaTime);
     updateGun(deltaTime);
     updateEnemies(deltaTime);
-    memset(pixels, 0, sizeof(pixels));
+    updateProjectiles(deltaTime); // ADD THIS
 
+    // Check if player got hit  // ADD THIS
+    if (checkProjectilePlayerHit(playerX, playerY, 0.3f)) {
+      printf("Player hit by projectile!\n");
+      // TODO: Reduce player health here
+    }
+
+    memset(pixels, 0, sizeof(pixels));
     render3DView(pixels, WIDTH, HEIGHT);
     renderEnemies(pixels, WIDTH, HEIGHT, getZBuffer());
+    renderProjectiles(pixels, WIDTH, HEIGHT,
+                      getZBuffer()); // ADD THIS (before enemies)
+
     drawGun(pixels, WIDTH, HEIGHT);
     renderMinimap(pixels, WIDTH, HEIGHT);
+
     SDL_UpdateTexture(tex, nullptr, pixels, WIDTH * sizeof(uint32_t));
     SDL_RenderCopy(ren, tex, nullptr, nullptr);
     SDL_RenderPresent(ren);
@@ -96,6 +109,9 @@ int main() {
 
   cleanupGunSprites();
   cleanupWallTexture();
+  cleanupEnemySprites();
+  cleanupProjectileSprites(); // ADD THIS
+
   SDL_Quit();
   return 0;
 }

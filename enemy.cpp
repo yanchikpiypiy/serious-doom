@@ -1,6 +1,7 @@
 #include "enemy.h"
 #include "map.h"
 #include "player.h"
+#include "projectile.h" // ADD THIS LINE
 #include "sprite.h"
 #include <cmath>
 #include <cstdio>
@@ -8,26 +9,19 @@
 #define MAX_ENEMIES 10
 static Enemy enemies[MAX_ENEMIES];
 static int enemyCount = 6;
-static Sprite allAngleSprites[ENEMY_MAX_FRAMES][8];
+static Sprite allAngleSprites[ENEMY_TOTAL_FRAMES][8];
 
 // Enemy AI constants
 static const float ENEMY_MOVE_SPEED = 1.8f;
 static const float ENEMY_CHASE_RANGE = 12.0f;
 static const float ENEMY_MIN_DISTANCE = 0.8f;
-static const float ENEMY_FACING_THRESHOLD =
-    0.005f; // Lower threshold for smoother updates
-static const float ENEMY_ANGLE_CHANGE_THRESHOLD =
-    0.3f; // Lower threshold (~17°) for smoother turning
+static const float ENEMY_FACING_THRESHOLD = 0.005f;
+static const float ENEMY_ANGLE_CHANGE_THRESHOLD = 0.3f;
 static const float ENEMY_MEMORY_TIME = 3.0f;
 static const float ENEMY_STUCK_TIME = 0.5f;
-
+static const float ENEMY_RADIUS = 0.25f;
 // Enemy AI states
-enum EnemyState {
-  IDLE,
-  CHASING,
-  SEARCHING,
-  UNSTUCK // New: trying to get unstuck
-};
+enum EnemyState { IDLE, CHASING, SEARCHING, UNSTUCK };
 
 struct EnemyAI {
   EnemyState state;
@@ -37,7 +31,7 @@ struct EnemyAI {
   float stuckTimer;
   float lastMovedX;
   float lastMovedY;
-  float unstuckAngle; // Direction to try when stuck
+  float unstuckAngle;
 };
 
 static EnemyAI enemyAI[MAX_ENEMIES];
@@ -53,7 +47,10 @@ static const AngleFileInfo viewToFile[8] = {{1, -1}, {2, 8}, {3, 7}, {4, 6},
 static const bool shouldMirror[8] = {false, false, false, false,
                                      false, true,  true,  true};
 
-static const char frameLetters[ENEMY_MAX_FRAMES] = {'A', 'B', 'C', 'D'};
+static const char frameLetters[ENEMY_TOTAL_FRAMES] = {
+    'A', 'B', 'C', 'D',                         // Walk frames 0-3
+    'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M' // Shoot frames 4-12
+};
 
 static void buildEnemySpritePath(char *out, const char *base, char frame,
                                  const AngleFileInfo &info) {
@@ -65,9 +62,7 @@ static void buildEnemySpritePath(char *out, const char *base, char frame,
 }
 
 bool loadEnemySprites() {
-  enemies[0].frameCount = ENEMY_MAX_FRAMES;
-
-  for (int f = 0; f < ENEMY_MAX_FRAMES; f++) {
+  for (int f = 0; f < ENEMY_TOTAL_FRAMES; f++) {
     for (int a = 0; a < 8; a++) {
       char path[256];
       buildEnemySpritePath(path, "SLHV", frameLetters[f], viewToFile[a]);
@@ -78,12 +73,12 @@ bool loadEnemySprites() {
     }
   }
 
-  printf("Enemy sprites loaded (%d frames, 8 angles)\n", ENEMY_MAX_FRAMES);
+  printf("Enemy sprites loaded (%d frames, 8 angles)\n", ENEMY_TOTAL_FRAMES);
   return true;
 }
 
 void cleanupEnemySprites() {
-  for (int f = 0; f < ENEMY_MAX_FRAMES; f++) {
+  for (int f = 0; f < ENEMY_TOTAL_FRAMES; f++) {
     for (int a = 0; a < 8; a++) {
       if (allAngleSprites[f][a].pixels) {
         delete[] allAngleSprites[f][a].pixels;
@@ -114,10 +109,15 @@ void initEnemies() {
     e.prevY = e.y;
     e.facingAngle = 0.0f;
     e.frameIndex = 0;
-    e.frameCount = ENEMY_MAX_FRAMES;
+    e.frameCount = ENEMY_WALK_FRAMES;
     e.animTimer = 0.0f;
     e.animSpeed = 0.15f;
     e.alive = true;
+
+    // Animation state
+    e.animState = ANIM_IDLE;
+    e.shootTimer = 0.0f;
+    e.shootCooldown = 0.0f;
 
     // Initialize AI state
     enemyAI[i].state = IDLE;
@@ -184,6 +184,11 @@ void updateEnemies(float dt) {
 
     bool canSeePlayer = hasLineOfSight(e.x, e.y, playerX, playerY);
 
+    // Update shoot cooldown
+    if (e.shootCooldown > 0.0f) {
+      e.shootCooldown -= dt;
+    }
+
     // Check if enemy is stuck
     float moveDist = sqrtf((e.x - ai.lastMovedX) * (e.x - ai.lastMovedX) +
                            (e.y - ai.lastMovedY) * (e.y - ai.lastMovedY));
@@ -191,9 +196,7 @@ void updateEnemies(float dt) {
     if (moveDist < 0.05f && (ai.state == CHASING || ai.state == SEARCHING)) {
       ai.stuckTimer += dt;
       if (ai.stuckTimer > ENEMY_STUCK_TIME) {
-        // Enemy is stuck! Switch to unstuck mode
         ai.state = UNSTUCK;
-        // Try a new random direction (DOOM-style: rotate 45-90 degrees)
         float angleToPlayer = atan2f(dy, dx);
         ai.unstuckAngle =
             angleToPlayer + (rand() % 2 ? 1.0f : -1.0f) *
@@ -209,24 +212,20 @@ void updateEnemies(float dt) {
     // AI State Machine
     if (canSeePlayer && distToPlayer < ENEMY_CHASE_RANGE &&
         ai.state != UNSTUCK) {
-      // Can see player - chase!
       ai.state = CHASING;
       ai.lastSeenX = playerX;
       ai.lastSeenY = playerY;
       ai.memoryTimer = ENEMY_MEMORY_TIME;
 
     } else if (ai.state == CHASING && !canSeePlayer) {
-      // Lost sight - switch to searching
       ai.state = SEARCHING;
 
     } else if (ai.state == SEARCHING) {
-      // Count down memory timer
       ai.memoryTimer -= dt;
       if (ai.memoryTimer <= 0.0f) {
         ai.state = IDLE;
       }
     } else if (ai.state == UNSTUCK) {
-      // Try unstuck movement for 1 second, then reassess
       ai.memoryTimer += dt;
       if (ai.memoryTimer > 1.0f) {
         ai.memoryTimer = 0.0f;
@@ -234,121 +233,165 @@ void updateEnemies(float dt) {
       }
     }
 
-    // Movement based on state
+    // Shooting logic - check if enemy should shoot
+    bool shouldShoot = false;
+    if (ai.state == CHASING && canSeePlayer &&
+        distToPlayer < ENEMY_SHOOT_RANGE && e.shootCooldown <= 0.0f &&
+        e.animState != ANIM_SHOOT) {
+      shouldShoot = true;
+    }
+
+    // Start shooting animation
+    if (shouldShoot) {
+      e.animState = ANIM_SHOOT;
+      e.frameIndex = ENEMY_WALK_FRAMES; // Start at frame E (index 4)
+      e.shootTimer = 0.0f;
+      e.animTimer = 0.0f;
+      e.shootCooldown = ENEMY_SHOOT_COOLDOWN;
+    }
+
+    // Movement based on state (don't move while shooting)
     float targetX, targetY, distToTarget;
     bool shouldMove = false;
 
-    if (ai.state == CHASING) {
-      targetX = playerX;
-      targetY = playerY;
-      distToTarget = distToPlayer;
-      shouldMove = distToTarget > ENEMY_MIN_DISTANCE;
+    if (e.animState != ANIM_SHOOT) {
+      if (ai.state == CHASING) {
+        targetX = playerX;
+        targetY = playerY;
+        distToTarget = distToPlayer;
+        shouldMove = distToTarget > ENEMY_MIN_DISTANCE;
 
-    } else if (ai.state == SEARCHING) {
-      dx = ai.lastSeenX - e.x;
-      dy = ai.lastSeenY - e.y;
-      distToTarget = sqrtf(dx * dx + dy * dy);
-      targetX = ai.lastSeenX;
-      targetY = ai.lastSeenY;
-      shouldMove = distToTarget > 0.5f;
+      } else if (ai.state == SEARCHING) {
+        dx = ai.lastSeenX - e.x;
+        dy = ai.lastSeenY - e.y;
+        distToTarget = sqrtf(dx * dx + dy * dy);
+        targetX = ai.lastSeenX;
+        targetY = ai.lastSeenY;
+        shouldMove = distToTarget > 0.5f;
 
-      if (distToTarget < 0.5f) {
-        ai.state = IDLE;
+        if (distToTarget < 0.5f) {
+          ai.state = IDLE;
+        }
+
+      } else if (ai.state == UNSTUCK) {
+        float unstuckDist = 2.0f;
+        targetX = e.x + cosf(ai.unstuckAngle) * unstuckDist;
+        targetY = e.y + sinf(ai.unstuckAngle) * unstuckDist;
+        dx = targetX - e.x;
+        dy = targetY - e.y;
+        distToTarget = sqrtf(dx * dx + dy * dy);
+        shouldMove = true;
+
+      } else {
+        // IDLE
+        e.vx = 0;
+        e.vy = 0;
       }
 
-    } else if (ai.state == UNSTUCK) {
-      // Move in the unstuck direction
-      float unstuckDist = 2.0f; // Try to move 2 units
-      targetX = e.x + cosf(ai.unstuckAngle) * unstuckDist;
-      targetY = e.y + sinf(ai.unstuckAngle) * unstuckDist;
-      dx = targetX - e.x;
-      dy = targetY - e.y;
-      distToTarget = sqrtf(dx * dx + dy * dy);
-      shouldMove = true;
+      // Execute movement
+      if (shouldMove && distToTarget > 0.1f) {
+        dx = targetX - e.x;
+        dy = targetY - e.y;
+        float normDist = sqrtf(dx * dx + dy * dy);
+        dx /= normDist;
+        dy /= normDist;
 
-    } else {
-      // IDLE
-      e.vx = 0;
-      e.vy = 0;
-    }
+        float newX = e.x + dx * ENEMY_MOVE_SPEED * dt;
+        float newY = e.y + dy * ENEMY_MOVE_SPEED * dt;
 
-    // Execute movement
-    if (shouldMove && distToTarget > 0.1f) {
-      dx = targetX - e.x;
-      dy = targetY - e.y;
-      float normDist = sqrtf(dx * dx + dy * dy);
-      dx /= normDist;
-      dy /= normDist;
-
-      float newX = e.x + dx * ENEMY_MOVE_SPEED * dt;
-      float newY = e.y + dy * ENEMY_MOVE_SPEED * dt;
-
-      if (getMapTile((int)newY, (int)newX) == 0) {
-        e.x = newX;
-        e.y = newY;
-        e.vx = dx * ENEMY_MOVE_SPEED;
-        e.vy = dy * ENEMY_MOVE_SPEED;
-      } else {
-        // Try sliding along walls (DOOM-style)
-        if (getMapTile((int)oldY, (int)newX) == 0) {
+        if (getMapTile((int)newY, (int)newX) == 0) {
           e.x = newX;
-          e.vx = dx * ENEMY_MOVE_SPEED;
-          e.vy = 0;
-        } else if (getMapTile((int)newY, (int)oldX) == 0) {
           e.y = newY;
-          e.vx = 0;
+          e.vx = dx * ENEMY_MOVE_SPEED;
           e.vy = dy * ENEMY_MOVE_SPEED;
         } else {
-          e.vx = 0;
-          e.vy = 0;
+          // Try sliding along walls
+          if (getMapTile((int)oldY, (int)newX) == 0) {
+            e.x = newX;
+            e.vx = dx * ENEMY_MOVE_SPEED;
+            e.vy = 0;
+          } else if (getMapTile((int)newY, (int)oldX) == 0) {
+            e.y = newY;
+            e.vx = 0;
+            e.vy = dy * ENEMY_MOVE_SPEED;
+          } else {
+            e.vx = 0;
+            e.vy = 0;
+          }
         }
       }
+    } else {
+      // Stop moving while shooting
+      e.vx = 0;
+      e.vy = 0;
     }
 
     // Update facing and animation
     float moveDX = e.x - oldX;
     float moveDY = e.y - oldY;
     float moveMagnitude = sqrtf(moveDX * moveDX + moveDY * moveDY);
-
-    // Always animate when moving (no hysteresis on animation)
     bool isMoving = moveMagnitude > ENEMY_FACING_THRESHOLD;
 
-    if (isMoving) {
-      float newFacingAngle = atan2f(moveDY, moveDX);
+    // Handle shooting animation
+    if (e.animState == ANIM_SHOOT) {
+      e.shootTimer += dt;
+      e.animTimer += dt;
 
-      // Smooth angle interpolation instead of hard threshold
+      // Keep facing the player while shooting
+
+      if (e.animTimer >= e.animSpeed) {
+        e.animTimer = 0.0f;
+        e.frameIndex++;
+
+        // SPAWN PROJECTILE at frame F (index 5) - THIS IS THE KEY ADDITION
+        if (e.frameIndex == 11) {
+          spawnEnemyProjectile(e.x, e.y, playerX, playerY);
+        }
+
+        // Check if shooting animation is complete
+        if (e.frameIndex >= ENEMY_TOTAL_FRAMES) {
+          e.animState = ANIM_IDLE;
+          e.frameIndex = 0;
+          e.shootTimer = 0.0f;
+        }
+      }
+    }
+    // Handle walking animation
+    else if (isMoving) {
+      e.animState = ANIM_WALK;
+
+      float newFacingAngle = atan2f(moveDY, moveDX);
       float angleDiff = newFacingAngle - e.facingAngle;
       while (angleDiff > M_PI)
         angleDiff -= 2 * M_PI;
       while (angleDiff < -M_PI)
         angleDiff += 2 * M_PI;
 
-      // Only apply hysteresis if the change is very small
       if (fabs(angleDiff) > ENEMY_ANGLE_CHANGE_THRESHOLD) {
         e.facingAngle = newFacingAngle;
       } else if (fabs(angleDiff) > 0.1f) {
-        // Smooth interpolation for medium changes
-        e.facingAngle += angleDiff * 0.3f; // Blend 30% toward new angle
+        e.facingAngle += angleDiff * 0.3f;
       }
 
       e.prevX = oldX;
       e.prevY = oldY;
 
-      // Always animate when moving
       e.animTimer += dt;
       if (e.animTimer >= e.animSpeed) {
         e.animTimer = 0.0f;
-        e.frameIndex = (e.frameIndex + 1) % e.frameCount;
+        e.frameIndex = (e.frameIndex + 1) % ENEMY_WALK_FRAMES;
       }
-    } else {
-      // Stop animation when not moving
+    }
+    // Idle state
+    else {
+      e.animState = ANIM_IDLE;
       e.animTimer = 0.0f;
       e.frameIndex = 0;
     }
   }
 }
 
-// Render enemies - matches header signature
+// Render enemies
 void renderEnemies(uint32_t *pixels, int screenWidth, int screenHeight,
                    float *buffer) {
   int w = screenWidth;
@@ -384,7 +427,7 @@ void renderEnemies(uint32_t *pixels, int screenWidth, int screenHeight,
     while (spriteAngle >= 2 * M_PI)
       spriteAngle -= 2 * M_PI;
 
-    int angleIndex = int((spriteAngle / (2 * M_PI)) * 8) & 7;
+    int angleIndex = int(((spriteAngle / (2 * M_PI)) * 8) + 0.5) & 7;
     bool mirror = shouldMirror[angleIndex];
 
     Sprite &sprite = allAngleSprites[e.frameIndex][angleIndex];
@@ -402,7 +445,6 @@ void renderEnemies(uint32_t *pixels, int screenWidth, int screenHeight,
     int drawX = int((0.5f + relAngle / FOV) * w - spriteW / 2);
     int drawY = floorLine - spriteH;
 
-    // Draw with z-buffer if available, otherwise draw normally
     if (zBuffer) {
       drawSpriteScaledWithDepth(&sprite, drawX, drawY,
                                 float(spriteW) / sprite.width, mirror, pixels,
