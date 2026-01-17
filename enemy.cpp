@@ -337,8 +337,10 @@ void updateEnemies(float dt) {
       e.shootTimer += dt;
       e.animTimer += dt;
 
-      // Keep facing the player while shooting
-
+      // Keep facing the player while Shooting
+      dx = e.x - playerX;
+      dy = e.y - playerY;
+      e.facingAngle = atan2f(dy, dx) + M_PI;
       if (e.animTimer >= e.animSpeed) {
         e.animTimer = 0.0f;
         e.frameIndex++;
