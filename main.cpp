@@ -5,6 +5,7 @@
 #include "projectile.h" // ADD THIS
 #include "renderer.h"
 #include <SDL2/SDL.h>
+#include <cstdio>
 #include <cstring>
 
 const int WIDTH = 620;
@@ -31,6 +32,10 @@ int main() {
 
   if (!loadWallTexture("sprites/wall.png")) {
     printf("WARNING: Could not load wall texture! Using solid color.\n");
+  }
+
+  if (!loadCeilingTexture("sprites/Ceiling.png")) {
+    printf("Error: Could not load a ceiuling sprite");
   }
 
   if (!loadEnemySprites()) {

@@ -9,10 +9,15 @@ const float FOV = M_PI / 3.0f;
 const float MAX_DIST = 20.0f;
 
 static Sprite wallTexture;
+static Sprite ceilingTexture;
 static float zBuffer[1920]; // Max screen width
 
 bool loadWallTexture(const char *filename) {
   return loadSprite(&wallTexture, filename);
+}
+
+bool loadCeilingTexture(const char *filename) {
+  return loadSprite(&ceilingTexture, filename);
 }
 
 void cleanupWallTexture() {

@@ -14,5 +14,6 @@ float *getZBuffer(); // Add this declaration
 void render3DView(uint32_t *pixels, int WIDTH, int HEIGHT);
 void renderMinimap(uint32_t *pixels, int WIDTH, int HEIGHT);
 
+bool loadCeilingTexture(const char *filename);
 bool loadWallTexture(const char *filename);
 void cleanupWallTexture();
