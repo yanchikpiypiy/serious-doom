@@ -289,7 +289,7 @@ void renderProjectiles(uint32_t *pixels, int screenWidth, int screenHeight,
       while (spriteAngle >= 2 * M_PI)
         spriteAngle -= 2 * M_PI;
 
-      angleIndex = int((spriteAngle / (2 * M_PI)) * 8) & 7;
+      angleIndex = int(((spriteAngle / (2 * M_PI)) * 8) + 0.5) & 7;
       mirror = shouldMirror[angleIndex];
     }
 
