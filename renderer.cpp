@@ -135,9 +135,49 @@ void render3DView(uint32_t *pixels, int WIDTH, int HEIGHT) {
     int texX = (int)(textureX * wallTexture.width) % wallTexture.width;
 
     // Draw ceiling
-    for (int y = 0; y < ceiling; y++)
-      drawPixel(pixels, WIDTH, HEIGHT, x, y, 0xFF1a1a2e);
+    // for (int y = 0; y < ceiling; y++)
+    // drawPixel(pixels, WIDTH, HEIGHT, x, y, 0xFF1a1a2e);
+    // Draw ceiling with texture - TRULY STATIC
+    for (int y = 0; y < ceiling; y++) {
+      float rowDistance = (HEIGHT * 0.4f) / (HEIGHT / 2.0f - y);
 
+      // Calculate the base direction (center of screen)
+      float straightDist = rowDistance / cos(rayAngle - playerAngle);
+
+      float rayDirX = cos(rayAngle);
+      float rayDirY = sin(rayAngle);
+
+      float worldX = playerX + rayDirX * straightDist;
+      float worldY = playerY + rayDirY * straightDist;
+
+      // Get fractional part for tiling
+      float fracX = (worldX * 0.6f) - floorf(worldX * 0.6f); // Scale by 4x
+      float fracY = (worldY * 0.6f) - floorf(worldY * 0.6f); // Scale by 2x
+      int texX = (int)(fracX * ceilingTexture.width);
+      int texY = (int)(fracY * ceilingTexture.height);
+
+      // Safety clamp
+      if (texX >= ceilingTexture.width)
+        texX = ceilingTexture.width - 1;
+      if (texY >= ceilingTexture.height)
+        texY = ceilingTexture.height - 1;
+      if (texX < 0)
+        texX = 0;
+      if (texY < 0)
+        texY = 0;
+
+      uint32_t texColor =
+          ceilingTexture.pixels[texY * ceilingTexture.width + texX];
+
+      // Fade to dark ceiling color at distance
+      float fogFactor = 1.0f / (1.0f + straightDist * straightDist * 0.1f);
+      uint8_t r = ((texColor >> 16) & 0xFF) * fogFactor;
+      uint8_t g = ((texColor >> 8) & 0xFF) * fogFactor;
+      uint8_t b = (texColor & 0xFF) * fogFactor;
+
+      uint32_t shadedColor = (0xFF << 24) | (r << 16) | (g << 8) | b;
+      drawPixel(pixels, WIDTH, HEIGHT, x, y, shadedColor);
+    }
     // Draw textured wall
     for (int y = ceiling; y <= floor && y < HEIGHT; y++) {
       float wallProgress = (float)(y - ceiling) / (float)(floor - ceiling);

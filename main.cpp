@@ -34,7 +34,7 @@ int main() {
     printf("WARNING: Could not load wall texture! Using solid color.\n");
   }
 
-  if (!loadCeilingTexture("sprites/Ceiling.png")) {
+  if (!loadCeilingTexture("sprites/GRAY.png")) {
     printf("Error: Could not load a ceiuling sprite");
   }
 
