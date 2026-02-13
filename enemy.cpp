@@ -1,7 +1,7 @@
 #include "enemy.h"
 #include "map.h"
 #include "player.h"
-#include "projectile.h" // ADD THIS LINE
+#include "projectile.h"
 #include "sprite.h"
 #include <cmath>
 #include <cstdio>
@@ -20,6 +20,7 @@ static const float ENEMY_ANGLE_CHANGE_THRESHOLD = 0.3f;
 static const float ENEMY_MEMORY_TIME = 3.0f;
 static const float ENEMY_STUCK_TIME = 0.5f;
 static const float ENEMY_RADIUS = 0.25f;
+
 // Enemy AI states
 enum EnemyState { IDLE, CHASING, SEARCHING, UNSTUCK };
 
@@ -48,27 +49,52 @@ static const bool shouldMirror[8] = {false, false, false, false,
                                      false, true,  true,  true};
 
 static const char frameLetters[ENEMY_TOTAL_FRAMES] = {
-    'A', 'B', 'C', 'D',                         // Walk frames 0-3
-    'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M' // Shoot frames 4-12
-};
+    'A', 'B', 'C', 'D',                          // Walk frames 0-3
+    'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', // Shoot frames 4-12
+    'N',                                         // Pain frame 13
+    'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', // Death frames 14-22
+    'X', 'Y', 'Z', '[', ']'}; // XDEATH when higher the a trashhold
 
 static void buildEnemySpritePath(char *out, const char *base, char frame,
-                                 const AngleFileInfo &info) {
-  if (info.angle2 == -1)
+                                 const AngleFileInfo &info, bool isBillboard) {
+  if (isBillboard) {
+    sprintf(out, "sprites/slhv/%s%c0.png", base, frame);
+  } else if (info.angle2 == -1) {
     sprintf(out, "sprites/slhv/%s%c%d.png", base, frame, info.angle1);
-  else
+  } else {
     sprintf(out, "sprites/slhv/%s%c%d%c%d.png", base, frame, info.angle1, frame,
             info.angle2);
+  }
 }
 
 bool loadEnemySprites() {
   for (int f = 0; f < ENEMY_TOTAL_FRAMES; f++) {
-    for (int a = 0; a < 8; a++) {
+    bool isBillboard = (f >= 14); // Death frames O-W are billboards
+
+    if (isBillboard) {
       char path[256];
-      buildEnemySpritePath(path, "SLHV", frameLetters[f], viewToFile[a]);
-      if (!loadSprite(&allAngleSprites[f][a], path)) {
+      buildEnemySpritePath(path, "SLHV", frameLetters[f], viewToFile[0], true);
+
+      Sprite billboardSprite;
+      if (!loadSprite(&billboardSprite, path)) {
         printf("Failed to load: %s\n", path);
         return false;
+      }
+
+      // Copy to all 8 angles
+      for (int a = 0; a < 8; a++) {
+        allAngleSprites[f][a] = billboardSprite;
+      }
+    } else {
+      // Load 8-angle sprites (walk, shoot, pain)
+      for (int a = 0; a < 8; a++) {
+        char path[256];
+        buildEnemySpritePath(path, "SLHV", frameLetters[f], viewToFile[a],
+                             false);
+        if (!loadSprite(&allAngleSprites[f][a], path)) {
+          printf("Failed to load: %s\n", path);
+          return false;
+        }
       }
     }
   }
@@ -79,25 +105,27 @@ bool loadEnemySprites() {
 
 void cleanupEnemySprites() {
   for (int f = 0; f < ENEMY_TOTAL_FRAMES; f++) {
-    for (int a = 0; a < 8; a++) {
-      if (allAngleSprites[f][a].pixels) {
-        delete[] allAngleSprites[f][a].pixels;
-        allAngleSprites[f][a].pixels = nullptr;
+    bool isBillboard = (f >= 14);
+
+    if (isBillboard) {
+      if (allAngleSprites[f][0].pixels) {
+        delete[] allAngleSprites[f][0].pixels;
+        allAngleSprites[f][0].pixels = nullptr;
+      }
+    } else {
+      for (int a = 0; a < 8; a++) {
+        if (allAngleSprites[f][a].pixels) {
+          delete[] allAngleSprites[f][a].pixels;
+          allAngleSprites[f][a].pixels = nullptr;
+        }
       }
     }
   }
 }
 
 void initEnemies() {
-  // Better spawn positions - spread across the map
-  float spawnPositions[][2] = {
-      {12.0f, 10.0f}, // Main hall
-      {3.0f, 3.0f},   // North wing
-      {20.0f, 3.0f},  // Northeast
-      {3.0f, 16.0f},  // West courtyard
-      {20.0f, 16.0f}, // East storage
-      {12.0f, 19.0f}  // Lower corridor
-  };
+  float spawnPositions[][2] = {{12.0f, 10.0f}, {3.0f, 3.0f},   {20.0f, 3.0f},
+                               {3.0f, 16.0f},  {20.0f, 16.0f}, {12.0f, 19.0f}};
 
   for (int i = 0; i < enemyCount; i++) {
     Enemy &e = enemies[i];
@@ -113,13 +141,11 @@ void initEnemies() {
     e.animTimer = 0.0f;
     e.animSpeed = 0.15f;
     e.alive = true;
-
-    // Animation state
     e.animState = ANIM_IDLE;
     e.shootTimer = 0.0f;
     e.shootCooldown = 0.0f;
+    e.health = ENEMY_MAX_HEALTH;
 
-    // Initialize AI state
     enemyAI[i].state = IDLE;
     enemyAI[i].lastSeenX = e.x;
     enemyAI[i].lastSeenY = e.y;
@@ -133,7 +159,6 @@ void initEnemies() {
   printf("Initialized %d enemies\n", enemyCount);
 }
 
-// Line-of-sight check
 static bool hasLineOfSight(float x1, float y1, float x2, float y2) {
   float dx = x2 - x1;
   float dy = y2 - y1;
@@ -149,31 +174,121 @@ static bool hasLineOfSight(float x1, float y1, float x2, float y2) {
   for (float t = 0; t < dist; t += step) {
     float x = x1 + dx * t;
     float y = y1 + dy * t;
-
     if (getMapTile((int)y, (int)x) == 1) {
       return false;
     }
   }
-
   return true;
 }
 
-// Calculate shortest angular distance
-static float angleDifference(float a1, float a2) {
-  float diff = a2 - a1;
-  while (diff > M_PI)
-    diff -= 2 * M_PI;
-  while (diff < -M_PI)
-    diff += 2 * M_PI;
-  return fabs(diff);
+void damageEnemy(int enemyIndex, int damage) {
+  if (enemyIndex < 0 || enemyIndex >= enemyCount)
+    return;
+
+  Enemy &e = enemies[enemyIndex];
+  if (!e.alive || e.animState == ANIM_DEATH || e.animState == ANIM_XDEATH) {
+    return;
+  }
+
+  printf("Enemy %d took %d damage! (health %d -> %d)\n", enemyIndex, damage,
+         e.health, e.health - damage);
+
+  e.health -= damage;
+
+  if (e.health <= 0) {
+    if (e.health <= -ENEMY_XDEATH_TRASHHOLD) {
+      e.animState = ANIM_XDEATH;
+      e.frameIndex = 23;
+      e.animTimer = 0.0f;
+      e.vx = 0;
+      e.vy = 0;
+    } else {
+      e.animState = ANIM_DEATH;
+      e.frameIndex = 14;
+      e.animTimer = 0.0f;
+      e.vx = 0;
+      e.vy = 0;
+    }
+  } else {
+    if ((rand() % 256) < ENEMY_PAIN_CHANCE) {
+      e.animState = ANIM_PAIN;
+      e.frameIndex = 13;
+      e.animTimer = 0.0f;
+      e.shootTimer = 0.0f; // Interrupt shooting
+    }
+  }
+}
+
+int hitscanCheckEnemy() {
+  const float MAX_RANGE = 20.0f;
+
+  float rayDX = cosf(playerAngle);
+  float rayDY = sinf(playerAngle);
+
+  for (int i = 0; i < enemyCount; i++) {
+    Enemy &e = enemies[i];
+    if (!e.alive || e.animState == ANIM_DEATH)
+      continue;
+
+    float toEnemyX = e.x - playerX;
+    float toEnemyY = e.y - playerY;
+    float dist = sqrtf(toEnemyX * toEnemyX + toEnemyY * toEnemyY);
+
+    if (dist > MAX_RANGE)
+      continue;
+
+    float dotProduct = toEnemyX * rayDX + toEnemyY * rayDY;
+    if (dotProduct < 0)
+      continue;
+
+    float closestX = playerX + rayDX * dotProduct;
+    float closestY = playerY + rayDY * dotProduct;
+
+    float dx = e.x - closestX;
+    float dy = e.y - closestY;
+    float distToRay = sqrtf(dx * dx + dy * dy);
+
+    if (distToRay < ENEMY_RADIUS) {
+      if (hasLineOfSight(playerX, playerY, e.x, e.y)) {
+        return i;
+      }
+    }
+  }
+  return -1;
 }
 
 void updateEnemies(float dt) {
   for (int i = 0; i < enemyCount; i++) {
     Enemy &e = enemies[i];
     EnemyAI &ai = enemyAI[i];
+
     if (!e.alive)
       continue;
+
+    // Handle death animation
+    if (e.animState == ANIM_DEATH || e.animState == ANIM_XDEATH) {
+      e.animTimer += dt;
+      if (e.animTimer >= 0.20f) {
+        e.animTimer = 0.0f;
+        e.frameIndex++;
+        if (e.frameIndex >= 28) {
+          e.frameIndex = 27;
+          e.alive = false;
+        }
+      }
+      continue;
+    }
+
+    // Handle pain animation
+    if (e.animState == ANIM_PAIN) {
+      e.animTimer += dt;
+      if (e.animTimer >= 0.25f) {
+        e.animState = ANIM_IDLE;
+        e.frameIndex = 0;
+        e.animTimer = 0.0f;
+      }
+      continue;
+    }
 
     float oldX = e.x;
     float oldY = e.y;
@@ -184,12 +299,11 @@ void updateEnemies(float dt) {
 
     bool canSeePlayer = hasLineOfSight(e.x, e.y, playerX, playerY);
 
-    // Update shoot cooldown
     if (e.shootCooldown > 0.0f) {
       e.shootCooldown -= dt;
     }
 
-    // Check if enemy is stuck
+    // Stuck detection
     float moveDist = sqrtf((e.x - ai.lastMovedX) * (e.x - ai.lastMovedX) +
                            (e.y - ai.lastMovedY) * (e.y - ai.lastMovedY));
 
@@ -216,10 +330,8 @@ void updateEnemies(float dt) {
       ai.lastSeenX = playerX;
       ai.lastSeenY = playerY;
       ai.memoryTimer = ENEMY_MEMORY_TIME;
-
     } else if (ai.state == CHASING && !canSeePlayer) {
       ai.state = SEARCHING;
-
     } else if (ai.state == SEARCHING) {
       ai.memoryTimer -= dt;
       if (ai.memoryTimer <= 0.0f) {
@@ -233,7 +345,7 @@ void updateEnemies(float dt) {
       }
     }
 
-    // Shooting logic - check if enemy should shoot
+    // Shooting logic
     bool shouldShoot = false;
     if (ai.state == CHASING && canSeePlayer &&
         distToPlayer < ENEMY_SHOOT_RANGE && e.shootCooldown <= 0.0f &&
@@ -241,16 +353,15 @@ void updateEnemies(float dt) {
       shouldShoot = true;
     }
 
-    // Start shooting animation
     if (shouldShoot) {
       e.animState = ANIM_SHOOT;
-      e.frameIndex = ENEMY_WALK_FRAMES; // Start at frame E (index 4)
+      e.frameIndex = ENEMY_WALK_FRAMES;
       e.shootTimer = 0.0f;
       e.animTimer = 0.0f;
       e.shootCooldown = ENEMY_SHOOT_COOLDOWN;
     }
 
-    // Movement based on state (don't move while shooting)
+    // Movement
     float targetX, targetY, distToTarget;
     bool shouldMove = false;
 
@@ -260,7 +371,6 @@ void updateEnemies(float dt) {
         targetY = playerY;
         distToTarget = distToPlayer;
         shouldMove = distToTarget > ENEMY_MIN_DISTANCE;
-
       } else if (ai.state == SEARCHING) {
         dx = ai.lastSeenX - e.x;
         dy = ai.lastSeenY - e.y;
@@ -268,11 +378,9 @@ void updateEnemies(float dt) {
         targetX = ai.lastSeenX;
         targetY = ai.lastSeenY;
         shouldMove = distToTarget > 0.5f;
-
         if (distToTarget < 0.5f) {
           ai.state = IDLE;
         }
-
       } else if (ai.state == UNSTUCK) {
         float unstuckDist = 2.0f;
         targetX = e.x + cosf(ai.unstuckAngle) * unstuckDist;
@@ -281,14 +389,11 @@ void updateEnemies(float dt) {
         dy = targetY - e.y;
         distToTarget = sqrtf(dx * dx + dy * dy);
         shouldMove = true;
-
       } else {
-        // IDLE
         e.vx = 0;
         e.vy = 0;
       }
 
-      // Execute movement
       if (shouldMove && distToTarget > 0.1f) {
         dx = targetX - e.x;
         dy = targetY - e.y;
@@ -305,7 +410,6 @@ void updateEnemies(float dt) {
           e.vx = dx * ENEMY_MOVE_SPEED;
           e.vy = dy * ENEMY_MOVE_SPEED;
         } else {
-          // Try sliding along walls
           if (getMapTile((int)oldY, (int)newX) == 0) {
             e.x = newX;
             e.vx = dx * ENEMY_MOVE_SPEED;
@@ -321,45 +425,39 @@ void updateEnemies(float dt) {
         }
       }
     } else {
-      // Stop moving while shooting
       e.vx = 0;
       e.vy = 0;
     }
 
-    // Update facing and animation
+    // Animation
     float moveDX = e.x - oldX;
     float moveDY = e.y - oldY;
     float moveMagnitude = sqrtf(moveDX * moveDX + moveDY * moveDY);
     bool isMoving = moveMagnitude > ENEMY_FACING_THRESHOLD;
 
-    // Handle shooting animation
     if (e.animState == ANIM_SHOOT) {
       e.shootTimer += dt;
       e.animTimer += dt;
 
-      // Keep facing the player while Shooting
       dx = e.x - playerX;
       dy = e.y - playerY;
       e.facingAngle = atan2f(dy, dx) + M_PI;
+
       if (e.animTimer >= e.animSpeed) {
         e.animTimer = 0.0f;
         e.frameIndex++;
 
-        // SPAWN PROJECTILE at frame F (index 5) - THIS IS THE KEY ADDITION
         if (e.frameIndex == 11) {
           spawnEnemyProjectile(e.x, e.y, playerX, playerY);
         }
 
-        // Check if shooting animation is complete
-        if (e.frameIndex >= ENEMY_TOTAL_FRAMES) {
+        if (e.frameIndex >= 13) {
           e.animState = ANIM_IDLE;
           e.frameIndex = 0;
           e.shootTimer = 0.0f;
         }
       }
-    }
-    // Handle walking animation
-    else if (isMoving) {
+    } else if (isMoving) {
       e.animState = ANIM_WALK;
 
       float newFacingAngle = atan2f(moveDY, moveDX);
@@ -383,9 +481,7 @@ void updateEnemies(float dt) {
         e.animTimer = 0.0f;
         e.frameIndex = (e.frameIndex + 1) % ENEMY_WALK_FRAMES;
       }
-    }
-    // Idle state
-    else {
+    } else {
       e.animState = ANIM_IDLE;
       e.animTimer = 0.0f;
       e.frameIndex = 0;
@@ -393,7 +489,6 @@ void updateEnemies(float dt) {
   }
 }
 
-// Render enemies
 void renderEnemies(uint32_t *pixels, int screenWidth, int screenHeight,
                    float *buffer) {
   int w = screenWidth;
@@ -403,23 +498,17 @@ void renderEnemies(uint32_t *pixels, int screenWidth, int screenHeight,
 
   for (int i = 0; i < enemyCount; i++) {
     Enemy &e = enemies[i];
-    if (!e.alive)
-      continue;
-
     float dx = e.x - playerX;
     float dy = e.y - playerY;
     float dist = sqrtf(dx * dx + dy * dy);
     if (dist < 0.1f)
       continue;
-
     float angleToEnemy = atan2f(dy, dx);
     float relAngle = angleToEnemy - playerAngle;
-
     while (relAngle < -M_PI)
       relAngle += 2 * M_PI;
     while (relAngle > M_PI)
       relAngle -= 2 * M_PI;
-
     if (fabs(relAngle) > FOV * 0.5f)
       continue;
 
@@ -431,7 +520,6 @@ void renderEnemies(uint32_t *pixels, int screenWidth, int screenHeight,
 
     int angleIndex = int(((spriteAngle / (2 * M_PI)) * 8) + 0.5) & 7;
     bool mirror = shouldMirror[angleIndex];
-
     Sprite &sprite = allAngleSprites[e.frameIndex][angleIndex];
 
     float corrected = dist * cosf(relAngle);
@@ -440,23 +528,25 @@ void renderEnemies(uint32_t *pixels, int screenWidth, int screenHeight,
 
     int wallHeight = int((float(h) / corrected) * 0.8f);
     int floorLine = (h / 2) + wallHeight;
-    int spriteH = int((float(h) / corrected) * 1.1f);
-    int spriteW =
-        int((float(sprite.width) / float(sprite.height)) * float(spriteH));
+    int targetHeight = int((float(h) / corrected) * 1.1f);
 
+    // Death frames: use FIRST death frame's height as reference
+    Sprite &refSprite = allAngleSprites[0][angleIndex];
+    float scale = float(targetHeight) / refSprite.height;
+
+    // Sprite dimensions at this scale
+    int spriteW = int(sprite.width * scale);
+    int spriteH = int(sprite.height * scale);
     int drawX = int((0.5f + relAngle / FOV) * w - spriteW / 2);
     int drawY = floorLine - spriteH;
 
     if (zBuffer) {
-      drawSpriteScaledWithDepth(&sprite, drawX, drawY,
-                                float(spriteW) / sprite.width, mirror, pixels,
-                                w, h, zBuffer, corrected);
+      drawSpriteScaledWithDepth(&sprite, drawX, drawY, scale, mirror, pixels, w,
+                                h, zBuffer, corrected);
     } else {
-      drawSpriteScaled(&sprite, drawX, drawY, float(spriteW) / sprite.width,
-                       mirror, pixels, w, h);
+      drawSpriteScaled(&sprite, drawX, drawY, scale, mirror, pixels, w, h);
     }
   }
 }
-
 int getEnemyCount() { return enemyCount; }
 Enemy &getEnemy(int i) { return enemies[i]; }

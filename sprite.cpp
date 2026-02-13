@@ -116,3 +116,83 @@ void drawSpriteScaledWithDepth(Sprite *sprite, int x, int y, float scale,
     }
   }
 }
+
+void drawSpriteScaledXY(Sprite *sprite, int x, int y, float scaleX,
+                        float scaleY, bool mirror, uint32_t *pixels, int WIDTH,
+                        int HEIGHT) {
+  if (!sprite || !sprite->pixels)
+    return;
+  int scaledWidth = (int)(sprite->width * scaleX + 0.5f);
+  int scaledHeight = (int)(sprite->height * scaleY + 0.5f);
+
+  for (int sy = 0; sy < scaledHeight; sy++) {
+    for (int sx = 0; sx < scaledWidth; sx++) {
+      int origX = (int)((sx + 0.5f) / scaleX);
+      int origY = (int)((sy + 0.5f) / scaleY);
+
+      if (mirror) {
+        origX = sprite->width - 1 - origX;
+      }
+      if (origX >= sprite->width)
+        origX = sprite->width - 1;
+      if (origY >= sprite->height)
+        origY = sprite->height - 1;
+      if (origX < 0 || origY < 0)
+        continue;
+
+      uint32_t pixel = sprite->pixels[origY * sprite->width + origX];
+      uint8_t alpha = (pixel >> 24) & 0xFF;
+      if (alpha < 128)
+        continue;
+
+      int px = x + sx;
+      int py = y + sy;
+
+      if (px >= 0 && px < WIDTH && py >= 0 && py < HEIGHT) {
+        pixels[py * WIDTH + px] = pixel;
+      }
+    }
+  }
+}
+
+void drawSpriteScaledWithDepthXY(Sprite *sprite, int x, int y, float scaleX,
+                                 float scaleY, bool mirror, uint32_t *pixels,
+                                 int WIDTH, int HEIGHT, float *zBuffer,
+                                 float depth) {
+  if (!sprite || !sprite->pixels)
+    return;
+  int scaledWidth = (int)(sprite->width * scaleX + 0.5f);
+  int scaledHeight = (int)(sprite->height * scaleY + 0.5f);
+
+  for (int sy = 0; sy < scaledHeight; sy++) {
+    for (int sx = 0; sx < scaledWidth; sx++) {
+      int origX = (int)((sx + 0.5f) / scaleX);
+      int origY = (int)((sy + 0.5f) / scaleY);
+
+      if (mirror) {
+        origX = sprite->width - 1 - origX;
+      }
+      if (origX >= sprite->width)
+        origX = sprite->width - 1;
+      if (origY >= sprite->height)
+        origY = sprite->height - 1;
+      if (origX < 0 || origY < 0)
+        continue;
+
+      uint32_t pixel = sprite->pixels[origY * sprite->width + origX];
+      uint8_t alpha = (pixel >> 24) & 0xFF;
+      if (alpha < 128)
+        continue;
+
+      int px = x + sx;
+      int py = y + sy;
+
+      // Z-buffer check: only draw if sprite is closer than wall
+      if (px >= 0 && px < WIDTH && py >= 0 && py < HEIGHT) {
+        if (depth < zBuffer[px]) {
+          pixels[py * WIDTH + px] = pixel;
+        }
+      }
+    }
+  }
+}

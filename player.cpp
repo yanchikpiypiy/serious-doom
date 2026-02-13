@@ -1,4 +1,5 @@
 #include "player.h"
+#include "enemy.h"
 #include "gun.h"
 #include "map.h"
 #include <cmath>
@@ -34,8 +35,14 @@ void handlePlayerInput(SDL_Keycode key, bool pressed) {
   // Actions
   if (key == SDLK_r && pressed)
     startReload();
-  if (key == SDLK_SPACE && pressed)
+  if (key == SDLK_SPACE && pressed) {
     startShoot();
+    int hitEnemy = hitscanCheckEnemy(); // ADD THIS
+    if (hitEnemy != -1) {
+      damageEnemy(hitEnemy, 70); // Deal 25 damage
+      printf("Hit enemy %d!\n", hitEnemy);
+    }
+  }
 }
 
 // Better collision check with radius
