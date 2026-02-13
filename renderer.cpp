@@ -104,105 +104,145 @@ static RayHit castRayDDA(float angle) {
 
 void render3DView(uint32_t *pixels, int WIDTH, int HEIGHT) {
   // Clear z-buffer
-  for (int i = 0; i < WIDTH; i++) {
+  for (int i = 0; i < WIDTH; i++)
     zBuffer[i] = MAX_DIST;
-  }
+
+  // Camera direction
+  float dirX = cos(playerAngle);
+  float dirY = sin(playerAngle);
+
+  // Camera plane
+  float planeX = -dirY * tan(FOV / 2.0f);
+  float planeY = dirX * tan(FOV / 2.0f);
 
   for (int x = 0; x < WIDTH; x++) {
-    float rayAngle = playerAngle - FOV / 2.0f + (x / (float)WIDTH) * FOV;
+    // camera space X
+    float cameraX = 2.0f * x / (float)WIDTH - 1.0f;
+
+    // ray direction
+    float rayDirX = dirX + planeX * cameraX;
+    float rayDirY = dirY + planeY * cameraX;
+
+    float rayAngle = atan2(rayDirY, rayDirX);
+
+    // cast ray
     RayHit hit = castRayDDA(rayAngle);
 
-    // Fish-eye correction
-    float dist = hit.distance * cos(rayAngle - playerAngle);
-    if (dist < 0.001f)
-      dist = 0.001f;
+    float dist = hit.distance;
+    if (dist < 0.0001f)
+      dist = 0.0001f;
 
-    // Store in z-buffer for sprite rendering
     zBuffer[x] = dist;
 
-    int wallHeight = (int)((HEIGHT / dist) * 0.8f);
-    int ceiling = (HEIGHT / 2) - wallHeight;
-    int floor = (HEIGHT / 2) + wallHeight;
+    // wall height (correct perspective)
+    int wallHeight = (int)(HEIGHT / dist);
 
-    // Calculate texture coordinate
-    float textureX;
-    if (hit.vertical) {
-      textureX = hit.hitY - floorf(hit.hitY);
-    } else {
-      textureX = hit.hitX - floorf(hit.hitX);
-    }
+    // wall draw bounds
+    int drawStart = -wallHeight / 2 + HEIGHT / 2;
+    int drawEnd = wallHeight / 2 + HEIGHT / 2;
 
-    int texX = (int)(textureX * wallTexture.width) % wallTexture.width;
+    if (drawStart < 0)
+      drawStart = 0;
+    if (drawEnd >= HEIGHT)
+      drawEnd = HEIGHT - 1;
 
-    // Draw ceiling
-    // for (int y = 0; y < ceiling; y++)
-    // drawPixel(pixels, WIDTH, HEIGHT, x, y, 0xFF1a1a2e);
-    // Draw ceiling with texture - TRULY STATIC
-    for (int y = 0; y < ceiling; y++) {
-      float rowDistance = (HEIGHT * 0.4f) / (HEIGHT / 2.0f - y);
+    //
+    // CEILING CASTING (STATIC)
+    //
+    for (int y = 0; y < drawStart; y++) {
+      float p = (HEIGHT / 2.0f) - y;
+      if (p == 0)
+        p = 0.0001f;
 
-      // Calculate the base direction (center of screen)
-      float straightDist = rowDistance / cos(rayAngle - playerAngle);
+      float rowDist = (HEIGHT / 2.0f) / p;
 
-      float rayDirX = cos(rayAngle);
-      float rayDirY = sin(rayAngle);
+      float worldX = playerX + rowDist * rayDirX;
+      float worldY = playerY + rowDist * rayDirY;
 
-      float worldX = playerX + rayDirX * straightDist;
-      float worldY = playerY + rayDirY * straightDist;
+      float fracX = (worldX * 0.6f) - floorf(worldX * 0.6f);
+      float fracY = (worldY * 0.6f) - floorf(worldY * 0.6f);
 
-      // Get fractional part for tiling
-      float fracX = (worldX * 0.6f) - floorf(worldX * 0.6f); // Scale by 4x
-      float fracY = (worldY * 0.6f) - floorf(worldY * 0.6f); // Scale by 2x
       int texX = (int)(fracX * ceilingTexture.width);
       int texY = (int)(fracY * ceilingTexture.height);
 
-      // Safety clamp
-      if (texX >= ceilingTexture.width)
-        texX = ceilingTexture.width - 1;
-      if (texY >= ceilingTexture.height)
-        texY = ceilingTexture.height - 1;
       if (texX < 0)
         texX = 0;
       if (texY < 0)
         texY = 0;
+      if (texX >= ceilingTexture.width)
+        texX = ceilingTexture.width - 1;
+      if (texY >= ceilingTexture.height)
+        texY = ceilingTexture.height - 1;
 
       uint32_t texColor =
           ceilingTexture.pixels[texY * ceilingTexture.width + texX];
 
-      // Fade to dark ceiling color at distance
-      float fogFactor = 1.0f / (1.0f + straightDist * straightDist * 0.1f);
-      uint8_t r = ((texColor >> 16) & 0xFF) * fogFactor;
-      uint8_t g = ((texColor >> 8) & 0xFF) * fogFactor;
-      uint8_t b = (texColor & 0xFF) * fogFactor;
+      float fog = 1.0f / (1.0f + rowDist * rowDist * 0.1f);
 
-      uint32_t shadedColor = (0xFF << 24) | (r << 16) | (g << 8) | b;
-      drawPixel(pixels, WIDTH, HEIGHT, x, y, shadedColor);
+      uint8_t r = ((texColor >> 16) & 0xFF) * fog;
+      uint8_t g = ((texColor >> 8) & 0xFF) * fog;
+      uint8_t b = (texColor & 0xFF) * fog;
+
+      uint32_t shaded = (0xFF << 24) | (r << 16) | (g << 8) | b;
+
+      drawPixel(pixels, WIDTH, HEIGHT, x, y, shaded);
     }
-    // Draw textured wall
-    for (int y = ceiling; y <= floor && y < HEIGHT; y++) {
-      float wallProgress = (float)(y - ceiling) / (float)(floor - ceiling);
-      int texY = (int)(wallProgress * wallTexture.height);
+
+    //
+    // WALL TEXTURE X
+    //
+    float wallX;
+
+    if (hit.vertical)
+      wallX = playerY + dist * rayDirY;
+    else
+      wallX = playerX + dist * rayDirX;
+
+    wallX -= floorf(wallX);
+
+    int wallTexX = (int)(wallX * wallTexture.width);
+
+    if (wallTexX < 0)
+      wallTexX = 0;
+    if (wallTexX >= wallTexture.width)
+      wallTexX = wallTexture.width - 1;
+
+    //
+    // DRAW WALL (CORRECT TEXTURE PROJECTION)
+    //
+    for (int y = drawStart; y <= drawEnd; y++) {
+      int d = y * 256 - HEIGHT * 128 + wallHeight * 128;
+
+      int texY = ((d * wallTexture.height) / wallHeight) / 256;
+
+      if (texY < 0)
+        texY = 0;
       if (texY >= wallTexture.height)
         texY = wallTexture.height - 1;
 
-      uint32_t texColor = wallTexture.pixels[texY * wallTexture.width + texX];
+      uint32_t texColor =
+          wallTexture.pixels[texY * wallTexture.width + wallTexX];
 
-      // Distance shading
-      int shade = (int)(255 / (1.0f + dist * dist * 0.08f));
-      uint8_t r = ((texColor >> 16) & 0xFF) * shade / 255;
-      uint8_t g = ((texColor >> 8) & 0xFF) * shade / 255;
-      uint8_t b = (texColor & 0xFF) * shade / 255;
+      // distance shading
+      float shadeFactor = 1.0f / (1.0f + dist * dist * 0.08f);
 
-      uint32_t shadedColor = (0xFF << 24) | (r << 16) | (g << 8) | b;
-      drawPixel(pixels, WIDTH, HEIGHT, x, y, shadedColor);
+      uint8_t r = ((texColor >> 16) & 0xFF) * shadeFactor;
+      uint8_t g = ((texColor >> 8) & 0xFF) * shadeFactor;
+      uint8_t b = (texColor & 0xFF) * shadeFactor;
+
+      uint32_t shaded = (0xFF << 24) | (r << 16) | (g << 8) | b;
+
+      drawPixel(pixels, WIDTH, HEIGHT, x, y, shaded);
     }
 
-    // Draw floor
-    for (int y = floor + 1; y < HEIGHT; y++)
+    //
+    // FLOOR
+    //
+    for (int y = drawEnd + 1; y < HEIGHT; y++) {
       drawPixel(pixels, WIDTH, HEIGHT, x, y, 0xFF0f0f0f);
+    }
   }
 }
-
 float *getZBuffer() { return zBuffer; }
 
 void renderMinimap(uint32_t *pixels, int WIDTH, int HEIGHT) {
