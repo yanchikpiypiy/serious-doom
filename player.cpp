@@ -39,7 +39,7 @@ void handlePlayerInput(SDL_Keycode key, bool pressed) {
     startShoot();
     int hitEnemy = hitscanCheckEnemy(); // ADD THIS
     if (hitEnemy != -1) {
-      damageEnemy(hitEnemy, 70); // Deal 25 damage
+      damageEnemy(hitEnemy, 170); // Deal 25 damage
       printf("Hit enemy %d!\n", hitEnemy);
     }
   }

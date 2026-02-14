@@ -20,9 +20,11 @@ static const float ENEMY_ANGLE_CHANGE_THRESHOLD = 0.3f;
 static const float ENEMY_MEMORY_TIME = 3.0f;
 static const float ENEMY_STUCK_TIME = 0.5f;
 static const float ENEMY_RADIUS = 0.25f;
+static const float ENEMY_WALL_BUFFER = 0.25f; // Keep this distance from walls
 
 // Enemy AI states
-enum EnemyState { IDLE, CHASING, SEARCHING, UNSTUCK };
+// Enemy AI states
+enum EnemyState { IDLE, CHASING, SEARCHING, UNSTUCK, ALERT };
 
 struct EnemyAI {
   EnemyState state;
@@ -33,6 +35,11 @@ struct EnemyAI {
   float lastMovedX;
   float lastMovedY;
   float unstuckAngle;
+  // NEW FIELDS:
+  float alertTimer;
+  float searchTimer;
+  float patrolAngle;
+  int searchPoints;
 };
 
 static EnemyAI enemyAI[MAX_ENEMIES];
@@ -125,7 +132,7 @@ void cleanupEnemySprites() {
 
 void initEnemies() {
   float spawnPositions[][2] = {{12.0f, 10.0f}, {3.0f, 3.0f},   {20.0f, 3.0f},
-                               {3.0f, 16.0f},  {20.0f, 16.0f}, {12.0f, 19.0f}};
+                               {3.0f, 15.0f},  {20.0f, 16.0f}, {12.0f, 19.5f}};
 
   for (int i = 0; i < enemyCount; i++) {
     Enemy &e = enemies[i];
@@ -178,6 +185,26 @@ static bool hasLineOfSight(float x1, float y1, float x2, float y2) {
       return false;
     }
   }
+  return true;
+}
+
+// SIMPLIFIED: Check if a position would collide with walls
+static bool isPositionValid(float x, float y) {
+  // Check center
+  if (getMapTile((int)y, (int)x) == 1) {
+    return false;
+  }
+
+  // Check 4 cardinal directions for the buffer zone
+  if (getMapTile((int)y, (int)(x + ENEMY_WALL_BUFFER)) == 1)
+    return false;
+  if (getMapTile((int)y, (int)(x - ENEMY_WALL_BUFFER)) == 1)
+    return false;
+  if (getMapTile((int)(y + ENEMY_WALL_BUFFER), (int)x) == 1)
+    return false;
+  if (getMapTile((int)(y - ENEMY_WALL_BUFFER), (int)x) == 1)
+    return false;
+
   return true;
 }
 
@@ -303,13 +330,13 @@ void updateEnemies(float dt) {
       e.shootCooldown -= dt;
     }
 
-    // Stuck detection
+    // Stuck detection - less sensitive
     float moveDist = sqrtf((e.x - ai.lastMovedX) * (e.x - ai.lastMovedX) +
                            (e.y - ai.lastMovedY) * (e.y - ai.lastMovedY));
 
-    if (moveDist < 0.05f && (ai.state == CHASING || ai.state == SEARCHING)) {
+    if (moveDist < 0.15f && (ai.state == CHASING || ai.state == SEARCHING)) {
       ai.stuckTimer += dt;
-      if (ai.stuckTimer > ENEMY_STUCK_TIME) {
+      if (ai.stuckTimer > 2.5f) {
         ai.state = UNSTUCK;
         float angleToPlayer = atan2f(dy, dx);
         ai.unstuckAngle =
@@ -323,33 +350,64 @@ void updateEnemies(float dt) {
       ai.lastMovedY = e.y;
     }
 
-    // AI State Machine
-    if (canSeePlayer && distToPlayer < ENEMY_CHASE_RANGE &&
-        ai.state != UNSTUCK) {
+    // REDUCED detection range
+    float detectionRange = 8.0f; // Reduced from 12.0f
+
+    // AI State Machine - IMPROVED
+    if (canSeePlayer && distToPlayer < detectionRange && ai.state != UNSTUCK) {
       ai.state = CHASING;
       ai.lastSeenX = playerX;
       ai.lastSeenY = playerY;
       ai.memoryTimer = ENEMY_MEMORY_TIME;
+      ai.alertTimer = 10.0f;
     } else if (ai.state == CHASING && !canSeePlayer) {
       ai.state = SEARCHING;
+      ai.searchTimer = 6.0f;
+      ai.searchPoints = 0;
+      ai.patrolAngle = atan2f(dy, dx);
     } else if (ai.state == SEARCHING) {
       ai.memoryTimer -= dt;
-      if (ai.memoryTimer <= 0.0f) {
+      ai.searchTimer -= dt;
+
+      // Check if reached current search point
+      float dxSearch = ai.lastSeenX - e.x;
+      float dySearch = ai.lastSeenY - e.y;
+      float distToSearchPoint =
+          sqrtf(dxSearch * dxSearch + dySearch * dySearch);
+
+      // Create search pattern around last seen position
+      if (distToSearchPoint < 1.2f && ai.searchPoints < 4) {
+        ai.searchPoints++;
+        float searchRadius = 2.5f;
+        ai.patrolAngle += (M_PI / 2.0f) + ((rand() % 100) / 100.0f - 0.5f);
+        ai.lastSeenX += cosf(ai.patrolAngle) * searchRadius;
+        ai.lastSeenY += sinf(ai.patrolAngle) * searchRadius;
+      }
+
+      // Give up searching after timer expires
+      if (ai.searchTimer <= 0.0f) {
+        ai.state = ALERT;
+        ai.alertTimer = 8.0f;
+      }
+    } else if (ai.state == ALERT) {
+      ai.alertTimer -= dt;
+      if (ai.alertTimer <= 0.0f) {
         ai.state = IDLE;
       }
     } else if (ai.state == UNSTUCK) {
       ai.memoryTimer += dt;
       if (ai.memoryTimer > 1.0f) {
         ai.memoryTimer = 0.0f;
-        ai.state = canSeePlayer ? CHASING : IDLE;
+        ai.state =
+            (canSeePlayer && distToPlayer < detectionRange) ? CHASING : IDLE;
       }
     }
 
-    // Shooting logic
+    // Shooting logic - reduced range
+    float shootRange = 6.0f; // Reduced shoot range
     bool shouldShoot = false;
-    if (ai.state == CHASING && canSeePlayer &&
-        distToPlayer < ENEMY_SHOOT_RANGE && e.shootCooldown <= 0.0f &&
-        e.animState != ANIM_SHOOT) {
+    if (ai.state == CHASING && canSeePlayer && distToPlayer < shootRange &&
+        e.shootCooldown <= 0.0f && e.animState != ANIM_SHOOT) {
       shouldShoot = true;
     }
 
@@ -377,10 +435,11 @@ void updateEnemies(float dt) {
         distToTarget = sqrtf(dx * dx + dy * dy);
         targetX = ai.lastSeenX;
         targetY = ai.lastSeenY;
-        shouldMove = distToTarget > 0.5f;
-        if (distToTarget < 0.5f) {
-          ai.state = IDLE;
-        }
+        shouldMove = distToTarget > 0.8f;
+      } else if (ai.state == ALERT) {
+        // Standing still in alert state
+        e.vx = 0;
+        e.vy = 0;
       } else if (ai.state == UNSTUCK) {
         float unstuckDist = 2.0f;
         targetX = e.x + cosf(ai.unstuckAngle) * unstuckDist;
@@ -401,27 +460,40 @@ void updateEnemies(float dt) {
         dx /= normDist;
         dy /= normDist;
 
-        float newX = e.x + dx * ENEMY_MOVE_SPEED * dt;
-        float newY = e.y + dy * ENEMY_MOVE_SPEED * dt;
+        // Movement speed adjustment
+        float moveSpeed = ENEMY_MOVE_SPEED;
+        if (ai.state == SEARCHING) {
+          moveSpeed *= 0.7f; // Slower when searching
+        }
 
-        if (getMapTile((int)newY, (int)newX) == 0) {
+        float newX = e.x + dx * moveSpeed * dt;
+        float newY = e.y + dy * moveSpeed * dt;
+
+        // Try full movement first
+        if (isPositionValid(newX, newY)) {
           e.x = newX;
           e.y = newY;
-          e.vx = dx * ENEMY_MOVE_SPEED;
-          e.vy = dy * ENEMY_MOVE_SPEED;
-        } else {
-          if (getMapTile((int)oldY, (int)newX) == 0) {
-            e.x = newX;
-            e.vx = dx * ENEMY_MOVE_SPEED;
-            e.vy = 0;
-          } else if (getMapTile((int)newY, (int)oldX) == 0) {
-            e.y = newY;
-            e.vx = 0;
-            e.vy = dy * ENEMY_MOVE_SPEED;
-          } else {
-            e.vx = 0;
-            e.vy = 0;
-          }
+          e.vx = dx * moveSpeed;
+          e.vy = dy * moveSpeed;
+        }
+        // Try just X movement (slide along Y wall)
+        else if (isPositionValid(newX, oldY)) {
+          e.x = newX;
+          e.y = oldY;
+          e.vx = dx * moveSpeed;
+          e.vy = 0;
+        }
+        // Try just Y movement (slide along X wall)
+        else if (isPositionValid(oldX, newY)) {
+          e.x = oldX;
+          e.y = newY;
+          e.vx = 0;
+          e.vy = dy * moveSpeed;
+        }
+        // Can't move at all
+        else {
+          e.vx = 0;
+          e.vy = 0;
         }
       }
     } else {
@@ -488,7 +560,6 @@ void updateEnemies(float dt) {
     }
   }
 }
-
 void renderEnemies(uint32_t *pixels, int screenWidth, int screenHeight,
                    float *buffer) {
   int w = screenWidth;
