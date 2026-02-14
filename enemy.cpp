@@ -23,8 +23,7 @@ static const float ENEMY_RADIUS = 0.25f;
 static const float ENEMY_WALL_BUFFER = 0.25f; // Keep this distance from walls
 
 // Enemy AI states
-// Enemy AI states
-enum EnemyState { IDLE, CHASING, SEARCHING, UNSTUCK, ALERT };
+enum EnemyState { IDLE, CHASING, SEARCHING, UNSTUCK };
 
 struct EnemyAI {
   EnemyState state;
@@ -36,7 +35,6 @@ struct EnemyAI {
   float lastMovedY;
   float unstuckAngle;
   // NEW FIELDS:
-  float alertTimer;
   float searchTimer;
   float patrolAngle;
   int searchPoints;
@@ -131,9 +129,15 @@ void cleanupEnemySprites() {
 }
 
 void initEnemies() {
-  float spawnPositions[][2] = {{12.0f, 10.0f}, {3.0f, 3.0f},   {20.0f, 3.0f},
-                               {3.0f, 15.0f},  {20.0f, 16.0f}, {12.0f, 19.5f}};
-
+  // Strategic positions for testing AI
+  float spawnPositions[][2] = {
+      {3.5f, 2.5f},   // Top-left room
+      {16.5f, 2.5f},  // Top-right room
+      {10.0f, 9.5f},  // Big center area
+      {3.5f, 17.5f},  // Bottom-left room
+      {16.5f, 17.5f}, // Bottom-right room
+      {10.0f, 15.5f}  // Bottom center
+  };
   for (int i = 0; i < enemyCount; i++) {
     Enemy &e = enemies[i];
     e.x = spawnPositions[i][0];
@@ -161,11 +165,13 @@ void initEnemies() {
     enemyAI[i].lastMovedX = e.x;
     enemyAI[i].lastMovedY = e.y;
     enemyAI[i].unstuckAngle = 0.0f;
+    enemyAI[i].searchTimer = 0.0f;
+    enemyAI[i].patrolAngle = 0.0f;
+    enemyAI[i].searchPoints = 0;
   }
 
   printf("Initialized %d enemies\n", enemyCount);
 }
-
 static bool hasLineOfSight(float x1, float y1, float x2, float y2) {
   float dx = x2 - x1;
   float dy = y2 - y1;
@@ -330,18 +336,20 @@ void updateEnemies(float dt) {
       e.shootCooldown -= dt;
     }
 
-    // Stuck detection - less sensitive
+    // Stuck detection
     float moveDist = sqrtf((e.x - ai.lastMovedX) * (e.x - ai.lastMovedX) +
                            (e.y - ai.lastMovedY) * (e.y - ai.lastMovedY));
 
-    if (moveDist < 0.15f && (ai.state == CHASING || ai.state == SEARCHING)) {
+    if (moveDist < 0.1f && (ai.state == CHASING || ai.state == SEARCHING)) {
       ai.stuckTimer += dt;
-      if (ai.stuckTimer > 2.5f) {
+      if (ai.stuckTimer > 1.5f) { // Faster unstuck (was 2.5f)
         ai.state = UNSTUCK;
         float angleToPlayer = atan2f(dy, dx);
         ai.unstuckAngle =
-            angleToPlayer + (rand() % 2 ? 1.0f : -1.0f) *
-                                (M_PI / 4.0f + (rand() % 100) / 200.0f);
+            angleToPlayer +
+            (rand() % 2 ? 1.0f : -1.0f) *
+                (M_PI / 3.0f +
+                 (rand() % 100) / 300.0f); // Larger angle variation
         ai.stuckTimer = 0.0f;
       }
     } else {
@@ -353,20 +361,18 @@ void updateEnemies(float dt) {
     // REDUCED detection range
     float detectionRange = 8.0f; // Reduced from 12.0f
 
-    // AI State Machine - IMPROVED
+    // AI State Machine
     if (canSeePlayer && distToPlayer < detectionRange && ai.state != UNSTUCK) {
       ai.state = CHASING;
       ai.lastSeenX = playerX;
       ai.lastSeenY = playerY;
       ai.memoryTimer = ENEMY_MEMORY_TIME;
-      ai.alertTimer = 10.0f;
     } else if (ai.state == CHASING && !canSeePlayer) {
       ai.state = SEARCHING;
-      ai.searchTimer = 6.0f;
+      ai.searchTimer = 30.0f;
       ai.searchPoints = 0;
       ai.patrolAngle = atan2f(dy, dx);
     } else if (ai.state == SEARCHING) {
-      ai.memoryTimer -= dt;
       ai.searchTimer -= dt;
 
       // Check if reached current search point
@@ -375,31 +381,50 @@ void updateEnemies(float dt) {
       float distToSearchPoint =
           sqrtf(dxSearch * dxSearch + dySearch * dySearch);
 
-      // Create search pattern around last seen position
-      if (distToSearchPoint < 1.2f && ai.searchPoints < 4) {
+      // Only start searching pattern after reaching the EXACT last seen
+      // position
+      if (distToSearchPoint < 0.5f && ai.searchPoints < 8) {
         ai.searchPoints++;
-        float searchRadius = 2.5f;
-        ai.patrolAngle += (M_PI / 2.0f) + ((rand() % 100) / 100.0f - 0.5f);
-        ai.lastSeenX += cosf(ai.patrolAngle) * searchRadius;
-        ai.lastSeenY += sinf(ai.patrolAngle) * searchRadius;
+
+        // Try to find a valid search point around the last seen position
+        float searchRadius = 2.0f;
+        bool foundValidPoint = false;
+
+        for (int attempt = 0; attempt < 8 && !foundValidPoint; attempt++) {
+          ai.patrolAngle += (M_PI / 4.0f) + ((rand() % 100) / 200.0f - 0.25f);
+          float testX = ai.lastSeenX + cosf(ai.patrolAngle) * searchRadius;
+          float testY = ai.lastSeenY + sinf(ai.patrolAngle) * searchRadius;
+
+          // Only use this search point if it's valid
+          if (isPositionValid(testX, testY)) {
+            ai.lastSeenX = testX;
+            ai.lastSeenY = testY;
+            foundValidPoint = true;
+          }
+        }
+
+        // If no valid point found after 8 attempts, give up searching
+        if (!foundValidPoint) {
+          ai.state = IDLE;
+        }
       }
 
       // Give up searching after timer expires
       if (ai.searchTimer <= 0.0f) {
-        ai.state = ALERT;
-        ai.alertTimer = 8.0f;
-      }
-    } else if (ai.state == ALERT) {
-      ai.alertTimer -= dt;
-      if (ai.alertTimer <= 0.0f) {
         ai.state = IDLE;
       }
     } else if (ai.state == UNSTUCK) {
       ai.memoryTimer += dt;
-      if (ai.memoryTimer > 1.0f) {
+      if (ai.memoryTimer > 0.8f) { // Shorter unstuck time (was 1.0f)
         ai.memoryTimer = 0.0f;
-        ai.state =
-            (canSeePlayer && distToPlayer < detectionRange) ? CHASING : IDLE;
+        // After unstucking, re-evaluate what to do
+        if (canSeePlayer && distToPlayer < detectionRange) {
+          ai.state = CHASING;
+          ai.lastSeenX = playerX;
+          ai.lastSeenY = playerY;
+        } else {
+          ai.state = IDLE;
+        }
       }
     }
 
@@ -435,13 +460,9 @@ void updateEnemies(float dt) {
         distToTarget = sqrtf(dx * dx + dy * dy);
         targetX = ai.lastSeenX;
         targetY = ai.lastSeenY;
-        shouldMove = distToTarget > 0.8f;
-      } else if (ai.state == ALERT) {
-        // Standing still in alert state
-        e.vx = 0;
-        e.vy = 0;
+        shouldMove = distToTarget > 0.5f; // Get closer before stopping
       } else if (ai.state == UNSTUCK) {
-        float unstuckDist = 2.0f;
+        float unstuckDist = 1.5f; // Shorter unstuck distance (was 2.0f)
         targetX = e.x + cosf(ai.unstuckAngle) * unstuckDist;
         targetY = e.y + sinf(ai.unstuckAngle) * unstuckDist;
         dx = targetX - e.x;
@@ -591,7 +612,10 @@ void renderEnemies(uint32_t *pixels, int screenWidth, int screenHeight,
       spriteAngle -= 2 * M_PI;
 
     int angleIndex = int(((spriteAngle / (2 * M_PI)) * 8) + 0.5) & 7;
-    bool mirror = shouldMirror[angleIndex];
+
+    // Billboard sprites (death frames) should never be mirrored
+    bool mirror = (e.frameIndex < 14) ? shouldMirror[angleIndex] : false;
+
     Sprite &sprite = allAngleSprites[e.frameIndex][angleIndex];
 
     float corrected = dist * cosf(relAngle);

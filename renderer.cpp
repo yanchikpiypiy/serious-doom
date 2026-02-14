@@ -189,14 +189,14 @@ void render3DView(uint32_t *pixels, int WIDTH, int HEIGHT) {
     }
 
     //
-    // WALL TEXTURE X
+    // WALL TEXTURE X - FIXED: Use actual hit position
     //
     float wallX;
 
     if (hit.vertical)
-      wallX = playerY + dist * rayDirY;
+      wallX = hit.hitY;
     else
-      wallX = playerX + dist * rayDirX;
+      wallX = hit.hitX;
 
     wallX -= floorf(wallX);
 

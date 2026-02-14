@@ -3,10 +3,9 @@
 #include "gun.h"
 #include "map.h"
 #include <cmath>
-
-float playerX = 1.5f;
-float playerY = 21.5f;
-float playerAngle = 0.0f;
+float playerX = 2.5f;
+float playerY = 2.5f;
+float playerAngle = M_PI / 4.0f; // Facing diagonal
 
 static bool moveForward = false;
 static bool moveBackward = false;
