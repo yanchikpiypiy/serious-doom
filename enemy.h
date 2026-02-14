@@ -5,7 +5,7 @@
 #define ENEMY_SHOOT_FRAMES 9  // E-M
 #define ENEMY_PAIN_FRAMES 1   // N
 #define ENEMY_DEATH_FRAMES 9  // O-W
-#define ENEMY_TOTAL_FRAMES 28 // 4+9+1+9
+#define ENEMY_TOTAL_FRAMES 29 // 4+9+1+9
 #define ENEMY_DOOM_ANGLES 5
 
 // Animation states

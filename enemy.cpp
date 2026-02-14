@@ -53,7 +53,7 @@ static const char frameLetters[ENEMY_TOTAL_FRAMES] = {
     'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', // Shoot frames 4-12
     'N',                                         // Pain frame 13
     'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', // Death frames 14-22
-    'X', 'Y', 'Z', '[', ']'}; // XDEATH when higher the a trashhold
+    'X', 'Y', 'Z', '[', ']', '*'}; // XDEATH when higher the a trashhold
 
 static void buildEnemySpritePath(char *out, const char *base, char frame,
                                  const AngleFileInfo &info, bool isBillboard) {
@@ -271,8 +271,8 @@ void updateEnemies(float dt) {
       if (e.animTimer >= 0.20f) {
         e.animTimer = 0.0f;
         e.frameIndex++;
-        if (e.frameIndex >= 28) {
-          e.frameIndex = 27;
+        if (e.frameIndex >= 29) {
+          e.frameIndex = 28;
           e.alive = false;
         }
       }
@@ -503,6 +503,7 @@ void renderEnemies(uint32_t *pixels, int screenWidth, int screenHeight,
     float dist = sqrtf(dx * dx + dy * dy);
     if (dist < 0.1f)
       continue;
+
     float angleToEnemy = atan2f(dy, dx);
     float relAngle = angleToEnemy - playerAngle;
     while (relAngle < -M_PI)
@@ -541,8 +542,14 @@ void renderEnemies(uint32_t *pixels, int screenWidth, int screenHeight,
     int drawY = floorLine - spriteH;
 
     if (zBuffer) {
+      float renderDepth = corrected;
+      // Make death sprites slightly closer so they render over floor
+      if (e.frameIndex >= 14) {
+        renderDepth -= 0.2f; // Bring corpses 0.1 units closer
+      }
+
       drawSpriteScaledWithDepth(&sprite, drawX, drawY, scale, mirror, pixels, w,
-                                h, zBuffer, corrected);
+                                h, zBuffer, renderDepth);
     } else {
       drawSpriteScaled(&sprite, drawX, drawY, scale, mirror, pixels, w, h);
     }
